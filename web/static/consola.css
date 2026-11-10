@@ -1,0 +1,13 @@
+/* Aspecto de la consola /admin (similar al sitio de administración de Django) */
+body.consola { background: #f8f8f8; }
+.cab-consola { background: #417690; color: #fff; display: flex; align-items: center; gap: .5rem; padding: .7rem 1.2rem; }
+.cab-consola h1 { font-size: 1.25rem; font-weight: 400; } .cab-consola a { color: #f5dd5d; } .cab-consola .espacio { flex: 1; }
+.cab-consola .claro { color: #f5dd5d; }
+.cuerpo-consola { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: calc(100vh - 3.2rem); }
+.menu-consola { background: #fff; border-right: 1px solid #ddd; padding: .8rem; }
+.modulo { margin-bottom: 1rem; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
+.modulo h3 { background: #79aec8; color: #fff; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; padding: .4rem .7rem; }
+.modulo a { display: block; padding: .45rem .7rem; color: #447e9b; text-decoration: none; border-top: 1px solid #eee; }
+.modulo a:hover { background: #f1f7fa; } .modulo a.activo { background: #e1eef5; font-weight: 700; color: #264b5d; }
+.zona-consola { padding: 1.2rem 1.6rem; max-width: 1300px; } .zona-consola > h2 { color: #666; font-weight: 300; font-size: 1.5rem; margin-bottom: 1rem; }
+@media (max-width: 800px) { .cuerpo-consola { grid-template-columns: 1fr; } }

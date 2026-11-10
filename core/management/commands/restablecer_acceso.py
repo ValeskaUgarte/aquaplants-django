@@ -1,0 +1,85 @@
+"""Recupera el acceso cuando no se conocen las contraseñas o las cuentas quedaron bloqueadas.
+
+Para cada usuario (o solo el indicado con --email): quita el bloqueo por intentos fallidos, asigna una contraseña nueva
+al azar que cumple la política (o la que se indique con --password), cierra sus sesiones y deja las claves en
+data/credenciales-demo.txt. Con --solo-desbloquear no toca las contraseñas. Con --quitar-2fa desactiva el segundo factor.
+
+Uso:
+    python manage.py restablecer_acceso                       # todos los usuarios
+    python manage.py restablecer_acceso --email admin@aquaplants.demo --password "MiClaveNueva#2026"
+    python manage.py restablecer_acceso --solo-desbloquear
+Debe ejecutarse con el mismo .env (misma base Firebase) que usa el servidor.
+"""
+import os
+from pathlib import Path
+
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
+
+from core import acceso, repo, seguridad
+from core.rtdb import rtdb
+
+
+class Command(BaseCommand):
+    help = "Desbloquea cuentas y restablece contraseñas (recuperación de acceso)."
+
+    def add_arguments(self, parser):
+        parser.add_argument("--email", help="Solo este usuario (por defecto, todos).")
+        parser.add_argument("--password", help="Contraseña a asignar (requiere --email). Debe cumplir la política.")
+        parser.add_argument("--solo-desbloquear", action="store_true", help="Quita el bloqueo sin cambiar contraseñas.")
+        parser.add_argument("--quitar-2fa", action="store_true", help="Desactiva el segundo factor (TOTP) del usuario.")
+
+    def handle(self, *args, **o):
+        if o["password"] and not o["email"]:
+            raise CommandError("--password necesita --email (no se usa la misma clave para todos).")
+        repo.invalidar("usuarios")
+        usuarios = rtdb().get("usuarios") or {}
+        if o["email"]:
+            u = repo.usuario_por_email(o["email"])
+            if not u:
+                raise CommandError(f"No existe el usuario {o['email']}.")
+            objetivos = [u]
+        else:
+            objetivos = [{**v, "id": k} for k, v in usuarios.items()]
+        if not objetivos:
+            raise CommandError("La base no tiene usuarios. Ejecuta `python manage.py seed_demo` primero.")
+
+        creadas = []
+        for u in objetivos:
+            campos = {"intentos_fallidos": 0, "bloqueado_hasta": None, "activo": True}
+            if o["quitar_2fa"]:
+                campos.update({"totp_activo": False, "totp_secreto_cif": None})
+            if not o["solo_desbloquear"]:
+                pw = o["password"] or acceso.clave_demo() or seguridad.generar_password_demo()
+                errs = seguridad.validar_politica_password(pw, u["email"], u.get("nombre", ""))
+                if errs:
+                    raise CommandError("La contraseña no cumple la política: " + " ".join(errs))
+                campos["hash"] = seguridad.hash_password(pw)
+                creadas.append((u.get("rol", ""), u["email"], pw))
+            repo.actualizar("usuarios", u["id"], campos)
+            seguridad.revocar_sesiones_usuario(u["id"])
+            seguridad.registrar_auditoria(usuario_id=u["id"], accion="acceso_restablecido", entidad="usuario",
+                                          entidad_id=u["id"], ip="local")
+            self.stdout.write(f"Desbloqueado: {u['email']}")
+        seguridad.invalidar_cache_sesiones()
+
+        if creadas:
+            archivo = Path(settings.AQ["DATA_DIR"]) / "credenciales-demo.txt"
+            archivo.parent.mkdir(parents=True, exist_ok=True)
+            previo = {}
+            if archivo.exists():                         # conserva las claves de usuarios que no se tocaron
+                for linea in archivo.read_text(encoding="utf-8").splitlines():
+                    p = linea.split("\t")
+                    if len(p) == 3:
+                        previo[p[1]] = p
+            for rol, email, pw in creadas:
+                previo[email] = [rol, email, pw]
+            archivo.write_text("".join("\t".join(p) + "\n" for p in previo.values()), encoding="utf-8")
+            try:
+                os.chmod(archivo, 0o600)
+            except OSError:
+                pass
+            self.stdout.write(self.style.SUCCESS("\n=== Credenciales nuevas ==="))
+            for rol, email, pw in creadas:
+                self.stdout.write(f"{rol:<18} {email:<32} {pw}")
+            self.stdout.write(f"\nTambién en {archivo}")

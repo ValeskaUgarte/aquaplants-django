@@ -1,0 +1,25 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "config": {
+      "servidor": {
+        ".read": true
+      }
+    },
+    "relay": {
+      "sol": {
+        "$id": {
+          ".write": "!data.exists() && newData.exists()",
+          ".validate": "$id.matches(/^[0-9]{13}_[0-9a-f]{32}$/) && newData.hasChildren(['m', 'r', 'ts']) && newData.child('m').isString() && newData.child('m').val().length <= 6 && newData.child('r').isString() && newData.child('r').val().beginsWith('/api/') && newData.child('r').val().length <= 600 && newData.child('ts').val() == now && (!newData.child('b').exists() || (newData.child('b').isString() && newData.child('b').val().length <= 20000)) && (!newData.child('t').exists() || (newData.child('t').isString() && newData.child('t').val().length <= 200)) && (!newData.child('c').exists() || (newData.child('c').isString() && newData.child('c').val().length <= 200)) && (!newData.child('d').exists() || (newData.child('d').isString() && newData.child('d').val().length <= 64)) && (!newData.child('ua').exists() || (newData.child('ua').isString() && newData.child('ua').val().length <= 200))"
+        }
+      },
+      "resp": {
+        "$id": {
+          ".read": true,
+          ".write": "!newData.exists()"
+        }
+      }
+    }
+  }
+}

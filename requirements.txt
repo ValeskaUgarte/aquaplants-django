@@ -1,0 +1,6 @@
+Django>=5.2,<6
+cryptography>=42
+requests>=2.31
+google-auth>=2.29
+openpyxl>=3.1
+pillow>=10
