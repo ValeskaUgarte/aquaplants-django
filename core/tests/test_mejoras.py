@@ -140,7 +140,7 @@ class InformesTests(MejorasBase):
         self.assertIn("spreadsheetml", r["Content-Type"])
         self.assertIn("attachment", r["Content-Disposition"])
         wb = load_workbook(io.BytesIO(r.content))
-        self.assertEqual(wb.sheetnames, ["Resumen", "Mediciones", "Alertas", "Eventos", "Trabajadores", "Detalle de gestión", "Mantenciones"])
+        self.assertEqual(wb.sheetnames, ["Resumen", "Mediciones", "Alertas", "Eventos", "Trabajadores", "Detalle de gestión", "Mantenciones", "Técnicos", "Dispositivos y ubicación"])
         filas = list(wb["Mediciones"].iter_rows(values_only=True))
         self.assertEqual(filas[0][:3], ("Fecha y hora", "Instalación", "Cultivo"))
         self.assertGreater(len(filas), 100)

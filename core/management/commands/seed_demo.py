@@ -164,7 +164,8 @@ def sembrar():
     credenciales = []
     for email, nombre, rol, insts in [("admin@aquaplants.demo", "Administrador Demo", "administrador", []),
                                       ("supervisor@aquaplants.demo", "Supervisor Demo", "supervisor", []),
-                                      ("encargado@aquaplants.demo", "Encargado Demo", "encargado_cultivo", ["INV-NORTE"])]:
+                                      ("encargado@aquaplants.demo", "Encargado Demo", "encargado_cultivo", ["INV-NORTE"]),
+                                      ("tecnico@aquaplants.demo", "Técnico Demo (servicio técnico)", "tecnico", [])]:
         pw = acceso.clave_demo() or seguridad.generar_password_demo()
         repo.crear_usuario(email, nombre, rol, seguridad.hash_password(pw), [ids_inst[i] for i in insts])
         credenciales.append({"email": email, "rol": rol, "password": pw})

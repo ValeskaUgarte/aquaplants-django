@@ -6,6 +6,7 @@ const est = { tab: 'hoy', filtro: 'abiertas' };
 let contenido, tabs, cabPunto, datos = null, conocidas = null, temporizador = null, hojaVivos = [];
 const pila = [];                                             // pantallas abiertas encima de la principal
 const esAdmin = () => AQ.usuario.rol === 'administrador';
+const esTecnico = () => AQ.usuario.rol === 'tecnico';
 const esSupervision = () => ['supervisor', 'administrador'].includes(AQ.usuario.rol);
 const LECTURAS_CLAVE = ['nivel_agua', 'nutrientes', 'luz_intensidad', 'ph', 'temperatura', 'caudal', 'co2'];
 
@@ -16,17 +17,17 @@ function armar() {
   tabs = el('nav', { class: 'tabs' });
   raiz.append(el('header', { class: 'cabecera' }, el('h1', { class: 'marca-movil' }, logo('logo-cab'), 'AquaPlants'),
     el('span', { class: 'cab-der' }, el('span', { class: 'nota' }, cabPunto, RELE ? 'vía Firebase' : 'en vivo'), campana(() => { cerrarTodo(); est.tab = 'alertas'; pintarTabs(); pintar(); }))), contenido, tabs);
-  est.tab = 'hoy'; pintarTabs(); refrescar();
+  est.tab = esTecnico() ? 'solicitudes' : 'hoy'; est.montada = null; pintarTabs(); refrescar();
   clearInterval(temporizador); temporizador = setInterval(refrescar, RELE ? 6000 : 5000);
 }
 function pintarTabs() {
   const n = datos ? datos.panel.totales.alertas_abiertas : 0;
-  const pestanas = [['hoy', '🏠', 'Hoy'], ['cultivos', '🌿', 'Cultivos'], ['alertas', '🔔', 'Alertas']];
-  if (esSupervision()) pestanas.push(['mas', '🧰', esAdmin() ? 'Gestión' : 'Más']);
+  const pestanas = esTecnico() ? [['solicitudes', '🔧', 'Solicitudes'], ['ubicacion', '📍', 'Equipos'], ['estadisticas', '📈', 'Resumen']]
+    : [['hoy', '🏠', 'Hoy'], ['cultivos', '🌿', 'Cultivos'], ['alertas', '🔔', 'Alertas'], ['mas', '🧰', esAdmin() ? 'Gestión' : 'Más']];
   pestanas.push(['cuenta', '👤', 'Cuenta']);
   tabs.className = `tabs n${pestanas.length}`;
   vaciar(tabs).append(...pestanas.map(([id, ico, t]) =>
-    el('button', { class: est.tab === id ? 'activo' : '', type: 'button', onclick: () => { cerrarTodo(); est.tab = id; AQ.editando = false; pintarTabs(); pintar(); } },
+    el('button', { class: est.tab === id ? 'activo' : '', type: 'button', onclick: () => { cerrarTodo(); clearInterval(est.timerTab); est.tab = id; est.montada = null; AQ.editando = false; pintarTabs(); pintar(); } },
       el('span', { class: 'ico' }, ico), t, id === 'alertas' && n ? el('span', { class: 'cuenta' }, n) : null)));
 }
 
@@ -58,6 +59,10 @@ window.aqAtras = () => {
 
 /* ---------------- datos ---------------- */
 async function refrescar() {
+  if (esTecnico()) {                                    // el técnico no ve cultivos ni alertas: solo sus solicitudes, los equipos y su cuenta
+    datos = datos || { panel: { totales: { alertas_abiertas: 0 } }, estados: [], abiertas: [] };
+    cabPunto.className = 'punto'; if (!est.montada) { pintarTabs(); pintar(); } return;
+  }
   try {
     const r = await api.get('/movil/resumen');
     datos = r;
@@ -81,7 +86,16 @@ function ocupado() {
 }
 function pintar() {
   if (!datos || pila.length || ocupado() || AQ.editando) return;           // no se redibuja mientras se escribe o hay una pantalla encima
-  ({ hoy: vHoy, cultivos: vCultivos, alertas: vAlertas, mas: vMas, cuenta: vCuenta })[est.tab]();
+  ({ hoy: vHoy, cultivos: vCultivos, alertas: vAlertas, mas: vMas, cuenta: vCuenta, solicitudes: () => montarTab(vServicioTecnico), ubicacion: () => montarTab(vUbicacion),
+    estadisticas: () => montarTab(vEstadisticas) })[est.tab]();
+}
+/* Pestañas del servicio técnico, ubicación y estadísticas: se dibujan una vez (no cada 5 segundos) y se refrescan solas si les corresponde. */
+async function montarTab(construir) {
+  if (est.montada === est.tab) return;
+  est.montada = est.tab; clearInterval(est.timerTab);
+  const zona = el('div', { class: 'zona-tab' }); vaciar(contenido).append(zona);
+  try { const r = await construir(zona); if (r && r.refrescar && est.montada === est.tab) est.timerTab = setInterval(() => { r.refrescar().catch(() => {}); }, r.cada || 15000); }
+  catch (e) { vaciar(zona).append(el('p', { class: 'aviso error' }, mensajeError(e))); est.montada = null; }
 }
 function actualizarVivos() {
   for (const v of hojaVivos) {
@@ -207,9 +221,12 @@ async function vAlertas() {
 /* ---------------- Más / Gestión (supervisor y administrador): todo dentro de la app ---------------- */
 function vMas() {
   const items = [
-    ['📒', 'Bitácora de alertas', 'Quién reconoció, dio solución, no pudo solucionar, confirmó o rechazó cada falla.', hBitacora, true],
-    ['📊', 'Comparar cultivos', 'Promedio, mínimo y máximo de una variable en cada cultivo.', hComparacion, true],
-    ['📡', 'Dispositivos', 'Conexión, última comunicación y calidad de enlace de cada AquaBrain.', hDispositivos, true],
+    ['📒', 'Bitácora de alertas', 'Quién reconoció, dio solución, no pudo solucionar, confirmó o rechazó cada falla.', hBitacora, esSupervision()],
+    ['📊', 'Comparar cultivos', 'Promedio, mínimo y máximo de una variable en cada cultivo.', hComparacion, esSupervision()],
+    ['📡', 'Dispositivos', 'Conexión, última comunicación y calidad de enlace de cada AquaBrain.', hDispositivos, esSupervision()],
+    ['🔧', 'Servicio técnico', 'Pedidos de arreglo, reemplazo, retiro o mantención y su estado.', (c) => vServicioTecnico(c), true],
+    ['📍', 'Ubicación de equipos', 'Dónde está cada dispositivo según su GPS, su recorrido y cómo llegar.', (c) => vUbicacion(c), true],
+    ['📈', 'Estadísticas', 'Alertas, tiempos de respuesta, cortes, dispositivos y mantenciones.', (c) => vEstadisticas(c), true],
     ['🧪', 'Simular fallas', 'Falta o exceso de agua, nutrientes, luz, gases, pH, temperatura o corte de comunicación.', (c, h) => hSimulacion(c, h), esAdmin()],
     ['👥', 'Usuarios', 'Crear usuarios, cambiar rol, instalaciones asignadas, activar o desactivar.', hUsuarios, esAdmin()],
     ['🎚️', 'Reglas de alerta', 'Umbrales de cada cultivo: cambiar el valor o desactivar una regla.', hReglas, esAdmin()],
@@ -219,7 +236,7 @@ function vMas() {
     ['🛡️', 'Auditoría', 'Registro de todas las acciones del sistema.', hAuditoria, esAdmin()],
     ['📥', 'Informes', 'Descargar Excel o CSV de mediciones, alertas y eventos.', hInformes, esAdmin()],
   ].filter((x) => x[4]);
-  vaciar(contenido).append(el('h2', {}, esAdmin() ? 'Gestión del sistema' : 'Herramientas de supervisión'),
+  vaciar(contenido).append(el('h2', {}, esAdmin() ? 'Gestión del sistema' : esSupervision() ? 'Herramientas de supervisión' : 'Más'),
     ...items.map(([ico, t, d, fn]) => el('button', { class: 'tarjeta item-mas', type: 'button', onclick: () => abrirPantalla(t, fn) },
       el('span', { class: 'item-ico' }, ico), el('span', { class: 'item-txt' }, el('strong', {}, t), el('span', { class: 'nota' }, d)), el('span', { class: 'item-flecha' }, '›'))));
 }
@@ -301,7 +318,8 @@ async function hSimulacion(cuerpo, h, preseleccion) {
 }
 
 async function hUsuarios(cuerpo, h) {
-  const [usuarios, inst] = await Promise.all([api.get('/usuarios'), api.get('/instalaciones')]);
+  const [usuarios, inst, disp] = await Promise.all([api.get('/usuarios'), api.get('/instalaciones'), api.get('/dispositivos')]);
+  h.disp = disp;
   const nomInst = Object.fromEntries(inst.map((i) => [i.id, i.nombre]));
   vaciar(cuerpo).append(el('button', { class: 'boton', type: 'button', onclick: () => abrirPantalla('Nuevo usuario', (c, h2) => formUsuario(c, h2, null, inst, h)) }, '+ Nuevo usuario'),
     ...usuarios.map((u) => el('button', { type: 'button', class: 'tarjeta item-mas', onclick: () => abrirPantalla(u.nombre, (c, h2) => formUsuario(c, h2, u, inst, h)) },
@@ -311,10 +329,11 @@ async function hUsuarios(cuerpo, h) {
 function formUsuario(cuerpo, h, u, inst, padre) {
   const nombre = el('input', { value: u ? u.nombre : '', autocomplete: 'off' }), email = el('input', { type: 'email', value: u ? u.email : '', disabled: !!u, autocomplete: 'off' });
   const rol = seleccion(Object.entries(ROL), u ? u.rol : 'encargado_cultivo'), clave = el('input', { type: 'password', autocomplete: 'new-password', placeholder: u ? 'Dejar vacío para no cambiarla' : '12+ caracteres, mayúscula, número y símbolo' });
-  const marcadas = new Set(u ? u.instalaciones : []);
-  const activo = el('input', { type: 'checkbox', checked: u ? u.activo : true });
+  const marcadas = new Set(u ? u.instalaciones : []), aCargo = new Set(u ? u.dispositivos : []), disp = padre.disp || [];
+  const activo = el('input', { type: 'checkbox', checked: u ? u.activo : true }), motivo = el('input', { value: u && u.suspension ? u.suspension.motivo || '' : '', placeholder: 'Motivo si suspendes la cuenta' });
   const guardar = async () => {
-    const cuerpoU = { nombre: nombre.value.trim(), rol: rol.value, instalaciones: [...marcadas] };
+    const cuerpoU = { nombre: nombre.value.trim(), rol: rol.value, instalaciones: [...marcadas], dispositivos: [...aCargo] };
+    if (u && !activo.checked) cuerpoU.suspension_motivo = motivo.value.trim();
     if (clave.value) cuerpoU.password = clave.value;
     if (u) cuerpoU.activo = activo.checked;
     await accion(async () => {
@@ -326,8 +345,13 @@ function formUsuario(cuerpo, h, u, inst, padre) {
   vaciar(cuerpo).append(campo('Nombre', nombre), campo('Correo', email), campo('Rol', rol),
     el('fieldset', { class: 'grupo' }, el('legend', {}, 'Instalaciones (encargado de cultivo)'), inst.map((i) => el('label', { class: 'campo-check' },
       el('input', { type: 'checkbox', checked: marcadas.has(i.id), onchange: (e) => { if (e.target.checked) marcadas.add(i.id); else marcadas.delete(i.id); } }), ' ', i.nombre))),
-    campo(u ? 'Nueva contraseña (opcional)' : 'Contraseña', clave), u ? el('label', { class: 'campo-check' }, activo, ' Cuenta activa') : null,
-    el('button', { class: 'boton', type: 'button', onclick: guardar }, u ? 'Guardar cambios' : 'Crear usuario'));
+    el('fieldset', { class: 'grupo' }, el('legend', {}, 'Dispositivos a cargo (reciben sus alertas)'), disp.map((d) => el('label', { class: 'campo-check' },
+      el('input', { type: 'checkbox', checked: aCargo.has(d.id), onchange: (e) => { if (e.target.checked) aCargo.add(d.id); else aCargo.delete(d.id); } }), ` ${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo}`))),
+    campo(u ? 'Nueva contraseña (opcional)' : 'Contraseña', clave), u ? el('label', { class: 'campo-check' }, activo, ' Cuenta activa (desmárcala para suspender)') : null, u ? campo('Motivo de la suspensión', motivo) : null,
+    el('button', { class: 'boton', type: 'button', onclick: guardar }, u ? 'Guardar cambios' : 'Crear usuario'),
+    u ? el('button', { class: 'boton sec', type: 'button', onclick: async () => {
+      if (!window.confirm(`¿Eliminar la cuenta de ${u.nombre}? No podrá volver a entrar; su nombre se conserva en el historial.`)) return;
+      await accion(async () => { await api.del(`/usuarios/${u.id}`); cerrarPantalla(); padre.recargar(); }, 'Cuenta eliminada'); } }, 'Eliminar cuenta') : null);
 }
 
 async function hReglas(cuerpo, h) {

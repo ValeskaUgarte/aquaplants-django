@@ -2,7 +2,7 @@ from django.conf import settings
 from django.urls import path, re_path
 from django.views.static import serve
 
-from core.vistas import auth, catalogo, informes, ingesta, mantencion, notificaciones, operacion, simulacion, vinculacion, web
+from core.vistas import auth, catalogo, estadisticas, informes, ingesta, mantencion, notificaciones, operacion, simulacion, ubicacion, vinculacion, web
 from core.http import (Campo, ErrorApi, booleano, conflicto, exigir_acceso_instalacion, fecha_iso, instalaciones_visibles,
                        invalido, ip_cliente, no_encontrado, numero, id_valor, ruta, sin_contenido, texto, validar)
 
@@ -50,6 +50,12 @@ urlpatterns = [
     path("api/alertas/<str:pk>/verificar", operacion.verificar_alerta),
     path("api/alertas/<str:pk>/derivar", mantencion.derivar_alerta),
     path("api/mantenciones", mantencion.mantenciones),
+    path("api/tecnicos", mantencion.tecnicos),
+    path("api/ubicaciones", ubicacion.ubicaciones),
+    path("api/config-mapa", ubicacion.config_mapa),
+    path("api/dispositivos/<str:pk>/trayecto", ubicacion.trayecto),
+    path("api/dispositivos/<str:pk>/ubicacion", ubicacion.ubicacion_manual),
+    path("api/estadisticas", estadisticas.estadisticas),
     path("api/mantenciones/<str:pk>", mantencion.mantencion_detalle),
     path("api/eventos", operacion.eventos),
     path("api/panel", operacion.panel),

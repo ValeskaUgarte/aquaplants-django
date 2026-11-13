@@ -13,7 +13,8 @@ from django.core.management.base import BaseCommand
 from core import acceso, repo, seguridad
 from core.rtdb import rtdb
 
-ADICIONALES = [("encargado2@aquaplants.demo", "Encargado Demo 2 (todos los cultivos)", "encargado_cultivo")]
+ADICIONALES = [("encargado2@aquaplants.demo", "Encargado Demo 2 (todos los cultivos)", "encargado_cultivo"),
+               ("tecnico@aquaplants.demo", "Técnico Demo (servicio técnico)", "tecnico")]
 
 
 def asegurar_usuarios_demo():
@@ -26,12 +27,14 @@ def asegurar_usuarios_demo():
     for email, nombre, rol in ADICIONALES:
         existente = repo.usuario_por_email(email)
         if existente:
+            if rol == "tecnico":
+                continue                             # el técnico no se asocia a instalaciones: recibe solicitudes
             faltan = [i for i in todas if i not in (existente.get("instalaciones") or {})]
             if faltan:                               # si se creó una instalación nueva, también la ve
                 repo.actualizar("usuarios", existente["id"], {"instalaciones": {i: True for i in todas}})
             continue
         pw = acceso.clave_demo() or seguridad.generar_password_demo()
-        repo.crear_usuario(email, nombre, rol, seguridad.hash_password(pw), todas)
+        repo.crear_usuario(email, nombre, rol, seguridad.hash_password(pw), [] if rol == "tecnico" else todas)
         creados.append({"email": email, "rol": rol, "password": pw})
     return creados
 

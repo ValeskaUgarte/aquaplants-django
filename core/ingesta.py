@@ -11,9 +11,9 @@ from datetime import datetime, timezone
 from django.conf import settings
 
 from core import alertas, cache_micro, notificaciones, repo, seguridad
-from core.http import Campo, ErrorApi, entero, fecha_iso, texto, validar
+from core.http import Campo, ErrorApi, entero, fecha_iso, numero, texto, validar
 from core.rtdb import rtdb
-from core.util import ahora_ms, clave_ms
+from core.util import ahora_ms, clave_ms, distancia_m
 
 PATRON_CODIGO = r"[A-Za-z0-9_-]{2,40}"
 PATRON_SENSOR = r"[A-Za-z0-9_-]{1,40}"
@@ -34,10 +34,40 @@ def _lista_mediciones(x):
     return x
 
 
+def _gps(x):
+    """Posición que informa el GPS del dispositivo: {lat, lng, precision (m, opcional), altitud (m, opcional)}."""
+    if not isinstance(x, dict) or set(x) - {"lat", "lng", "precision", "altitud", "timestamp"}:
+        raise ValueError("gps inválido.")
+    lat, lng = numero(x.get("lat")), numero(x.get("lng"))
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise ValueError("Coordenadas fuera de rango.")
+    sal = {"lat": round(float(lat), 6), "lng": round(float(lng), 6)}
+    for k in ("precision", "altitud"):
+        if x.get(k) is not None:
+            sal[k] = round(float(numero(x[k])), 1)
+    return sal
+
+
+def registrar_ubicacion(disp, gps, mapa, ahora, origen="gps"):
+    """Deja la posición actual del dispositivo y su historial (solo cuando se movió ≥ 30 m o pasaron 30 min, para no llenar la base).
+    Si se movió ≥ 100 m queda un evento. El dispositivo puede cambiar de lugar: lo importante es saber dónde está."""
+    prev = disp.get("ubicacion")
+    mov = distancia_m(prev["lat"], prev["lng"], gps["lat"], gps["lng"]) if prev else None
+    ubic = {**gps, "origen": origen, "actualizada_en": ahora, "guardada_en": (prev or {}).get("guardada_en", 0)}
+    if prev is None or mov >= 30 or origen == "manual" or ahora - ubic["guardada_en"] >= 30 * 60_000:
+        mapa[f"ubicaciones/{disp['id']}/{clave_ms(ahora)}"] = {"lat": gps["lat"], "lng": gps["lng"], "p": gps.get("precision"), "o": origen}
+        ubic["guardada_en"] = ahora
+    mapa[f"dispositivos/{disp['id']}/ubicacion"] = ubic
+    if mov is not None and mov >= 100:
+        alertas.evento(mapa, disp["instalacion_id"], disp["id"], "dispositivo_movido", f"El dispositivo se movió {round(mov)} m de su última posición.",
+                       {"lat": gps["lat"], "lng": gps["lng"], "metros": round(mov)})
+
+
 def esquema_lote(datos):
     return validar(datos, {
         "id_sistema": Campo(texto(2, 40, PATRON_CODIGO)), "id_dispositivo": Campo(texto(2, 40, PATRON_CODIGO)),
-        "calidad_enlace": Campo(entero(0, 100), requerido=False), "mediciones": Campo(_lista_mediciones)})
+        "calidad_enlace": Campo(entero(0, 100), requerido=False), "gps": Campo(_gps, requerido=False),
+        "mediciones": Campo(_lista_mediciones)})
 
 
 def _medicion_valida(crudo):
@@ -220,6 +250,8 @@ def procesar_lote(disp, lote, *, origen="api", actualizar_estado=True):
         mapa[f"dispositivos/{disp['id']}/ultima_comunicacion"] = ahora
         if lote.get("calidad_enlace") is not None:
             mapa[f"dispositivos/{disp['id']}/calidad_enlace"] = lote["calidad_enlace"]
+        if lote.get("gps"):
+            registrar_ubicacion(disp, lote["gps"], mapa, ahora)
         if disp.get("estado_conexion") == "sin_comunicacion":
             alertas.normalizar(f"d:{disp['id']}", mapa, "El dispositivo volvió a comunicarse.")
             alertas.evento(mapa, iid, disp["id"], "dispositivo_reconectado", "El dispositivo volvió a comunicarse.")

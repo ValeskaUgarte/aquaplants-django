@@ -128,7 +128,7 @@ class FlujoSupervisorTests(Base):
         # el encargado no gestiona las órdenes; el supervisor sí, y debe contar qué se hizo
         self.assertEqual(self.enviar_api(enc, csrf_e, "patch", f"/api/mantenciones/{mid}", {"estado": "en_curso"}).status_code, 403)
         self.assertEqual(self.enviar_api(sup, csrf_s, "patch", f"/api/mantenciones/{mid}", {"estado": "completada"}).status_code, 400)
-        self.assertEqual(self.enviar_api(sup, csrf_s, "patch", f"/api/mantenciones/{mid}", {"estado": "completada", "nota": "Cambié la batería", "tecnico": "Juan Pérez"}).status_code, 204)
+        self.assertEqual(self.enviar_api(sup, csrf_s, "patch", f"/api/mantenciones/{mid}", {"estado": "completada", "nota": "Cambié la batería", "tecnico": "Juan Pérez", "resolucion": "reemplazado"}).status_code, 204)
         m = sup.get("/api/mantenciones", {"estado": "completada"}).json()
         self.assertEqual((len(m), m[0]["tecnico"], m[0]["resultado"]), (1, "Juan Pérez", "Cambié la batería"))
         self.enviar([self.med("CAU1", "caudal", 2.0, "L/min")])                    # al fin el dato vuelve a la normalidad

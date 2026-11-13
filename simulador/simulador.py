@@ -17,6 +17,7 @@ import json
 import math
 import os
 import random
+import zlib
 import secrets
 import sys
 import time
@@ -68,6 +69,9 @@ class DispositivoSimulado:
         self.api, self.id_sistema, self.id_dispositivo = api, id_sistema, id_dispositivo
         self.secreto, self.sensores, self.opciones, self.log = secreto, sensores, opciones, log
         self.cultivo = cultivo          # cultivo que monitorea este dispositivo (uno por dispositivo)
+        h = zlib.crc32(id_dispositivo.encode())             # posición simulada estable por dispositivo (zona de Santiago, norte/sur según la instalación)
+        zona = 0.012 if "NORTE" in id_sistema.upper() else -0.012 if "SUR" in id_sistema.upper() else 0.0
+        self.gps_base = (-33.4489 + zona + ((h % 1000) / 1000 - 0.5) * 0.002, -70.6693 + (((h >> 10) % 1000) / 1000 - 0.5) * 0.002)
         Path(dir_local).mkdir(parents=True, exist_ok=True)
         self.archivo_cola = Path(dir_local) / f"cola-{id_dispositivo}.json"
         try:
@@ -210,7 +214,9 @@ class DispositivoSimulado:
             self.estadisticas["enviadas"] += len(enviar)
             calidad = (40 + random.randrange(30)) if self.fallos > 0 else (70 + random.randrange(30))
             status, j = self.firmar_y_enviar({"id_sistema": self.id_sistema, "id_dispositivo": self.id_dispositivo,
-                                              "calidad_enlace": calidad, "mediciones": enviar})
+                                              "calidad_enlace": calidad, "mediciones": enviar,
+                                              "gps": {"lat": round(self.gps_base[0] + random.uniform(-3e-5, 3e-5), 6), "lng": round(self.gps_base[1] + random.uniform(-3e-5, 3e-5), 6),
+                                                      "precision": round(3 + random.random() * 6, 1)}})
             if status == 200:
                 del self.cola[:len(lote)]
                 self.persistir_cola()                     # solo se borra tras confirmación del servidor

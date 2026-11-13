@@ -5,10 +5,11 @@ from django.http import JsonResponse
 from core import repo, seguridad
 from core.http import (Campo, ErrorApi, booleano, conflicto, correo, entero, id_valor, instalaciones_visibles, invalido,
                        ip_cliente, lista_ids, no_encontrado, numero, opcion, prohibido, ruta, sin_contenido, texto, validar)
+from core.rtdb import rtdb
 from core.util import ahora_ms, iso
 
 ADMIN = ("administrador",)
-ROLES = opcion("administrador", "supervisor", "encargado_cultivo")
+ROLES = opcion("administrador", "supervisor", "encargado_cultivo", "tecnico")
 _VARIABLE = r"[a-z0-9_]{2,40}"
 _OPERADORES = opcion(">", ">=", "<", "<=")
 _SEVERIDAD = opcion("advertencia", "emergencia")
@@ -52,26 +53,66 @@ def usuarios(request):
             "id": u["id"], "email": u["email"], "nombre": u["nombre"], "rol": u["rol"], "activo": u.get("activo", True),
             "totp_activo": bool(u.get("totp_activo")), "ultimo_login": iso(u.get("ultimo_login")),
             "bloqueado_hasta": iso(u.get("bloqueado_hasta")), "instalaciones": sorted((u.get("instalaciones") or {}).keys()),
-        } for u in sorted(repo.lista("usuarios"), key=lambda x: x["nombre"].lower())], safe=False)
+            "dispositivos": sorted((u.get("dispositivos") or {}).keys()), "creado_en": iso(u.get("creado_en")),
+            "suspension": ({"motivo": u.get("suspension_motivo"), "en": iso(u.get("suspendido_en")), "por": repo.col("usuarios").get(u.get("suspendido_por"), {}).get("nombre")}
+                           if not u.get("activo", True) else None),
+        } for u in sorted(repo.lista("usuarios"), key=lambda x: x["nombre"].lower()) if not u.get("eliminado")], safe=False)
     d = validar(request.cuerpo, {"email": Campo(correo), "nombre": Campo(texto(2, 120)), "password": Campo(texto(0, 128)),
-                                 "rol": Campo(ROLES), "instalaciones": Campo(lista_ids(200), requerido=False)})
+                                 "rol": Campo(ROLES), "instalaciones": Campo(lista_ids(200), requerido=False), "dispositivos": Campo(lista_ids(500), requerido=False)})
     _politica(d["password"], d["email"], d["nombre"])
     if repo.usuario_por_email(d["email"]):
         raise conflicto("Ya existe un usuario con ese correo.")
     for i in d.get("instalaciones", []):
         if i not in repo.col("instalaciones"):
             raise invalido("Una de las instalaciones indicadas no existe.")
-    uid = repo.crear_usuario(d["email"], d["nombre"], d["rol"], seguridad.hash_password(d["password"]), d.get("instalaciones", []))
+    insts = _con_instalaciones_de(d.get("instalaciones", []), d.get("dispositivos", []))
+    uid = repo.crear_usuario(d["email"], d["nombre"], d["rol"], seguridad.hash_password(d["password"]), insts)
+    if d.get("dispositivos"):
+        repo.actualizar("usuarios", uid, {"dispositivos": {x: True for x in d["dispositivos"]}})
     _audit(request, "usuario_creado", "usuario", uid, {"rol": d["rol"]})
     return JsonResponse({"id": uid}, status=201)
 
 
-@ruta(("PATCH",), roles=ADMIN)
+def _con_instalaciones_de(instalaciones, dispositivos):
+    """Vincular a alguien con un dispositivo le da también acceso a su instalación. Valida que todo exista."""
+    disp = repo.col("dispositivos")
+    for x in dispositivos:
+        if x not in disp:
+            raise invalido("Alguno de los dispositivos indicados no existe.")
+    return sorted(set(instalaciones) | {disp[x]["instalacion_id"] for x in dispositivos})
+
+
+def _eliminar_usuario(request, u, pk):
+    """Elimina la cuenta: no puede volver a entrar y su correo queda libre, pero se conserva el nombre en el historial (bitácoras, informes)."""
+    if pk == request.usuario["id"]:
+        raise conflicto("No puedes eliminar tu propia cuenta.")
+    if u.get("rol") == "administrador" and sum(1 for x in repo.lista("usuarios") if x.get("rol") == "administrador" and x.get("activo", True) and not x.get("eliminado")) <= 1:
+        raise conflicto("Es el único administrador activo: crea otro antes de eliminarlo.")
+    abiertas = [m for m in repo.lista("mantenciones") if m.get("tecnico_id") == pk and m.get("estado") in ("pendiente", "en_curso")]
+    mapa = {f"usuarios/{pk}/eliminado": True, f"usuarios/{pk}/eliminado_en": ahora_ms(), f"usuarios/{pk}/activo": False,
+            f"usuarios/{pk}/instalaciones": None, f"usuarios/{pk}/dispositivos": None, f"indice_email/{repo.clave_email(u['email'])}": None}
+    for m in abiertas:                                           # sus solicitudes técnicas vuelven a la bolsa
+        mapa.update({f"mantenciones/{m['id']}/tecnico_id": "", f"mantenciones/{m['id']}/estado": "pendiente", f"mantenciones/{m['id']}/aceptada_en": None})
+    rtdb().update(mapa)
+    repo.invalidar("usuarios", "mantenciones")
+    seguridad.revocar_sesiones_usuario(pk)
+    seguridad.invalidar_cache_sesiones()
+    _audit(request, "usuario_eliminado", "usuario", pk, {"rol": u.get("rol"), "solicitudes_devueltas": len(abiertas)})
+    return sin_contenido()
+
+
+@ruta(("PATCH", "DELETE"), roles=ADMIN)
 def usuario_detalle(request, pk):
+    if request.method == "DELETE":
+        u = repo.get("usuarios", pk)
+        if u is None or u.get("eliminado"):
+            raise no_encontrado()
+        return _eliminar_usuario(request, u, pk)
     d = validar(request.cuerpo, {"nombre": Campo(texto(2, 120)), "rol": Campo(ROLES), "activo": Campo(booleano),
-                                 "password": Campo(texto(0, 128)), "instalaciones": Campo(lista_ids(200))}, parcial=True)
+                                 "password": Campo(texto(0, 128)), "instalaciones": Campo(lista_ids(200)), "dispositivos": Campo(lista_ids(500)),
+                                 "suspension_motivo": Campo(texto(0, 300))}, parcial=True)
     u = repo.get("usuarios", pk)
-    if u is None:
+    if u is None or u.get("eliminado"):
         raise no_encontrado()
     # Evita que el administrador se quite el acceso a sí mismo y deje el sistema sin administradores.
     if pk == request.usuario["id"] and (d.get("activo") is False or ("rol" in d and d["rol"] != "administrador")):
@@ -80,11 +121,20 @@ def usuario_detalle(request, pk):
         _politica(d["password"], u["email"], d.get("nombre", u["nombre"]))
     if any(i not in repo.col("instalaciones") for i in d.get("instalaciones", [])):
         raise invalido("Una de las instalaciones indicadas no existe.")
+    if "dispositivos" in d:
+        _con_instalaciones_de([], d["dispositivos"])
     campos = {k: d[k] for k in ("nombre", "activo", "rol") if k in d}
+    if d.get("activo") is False and u.get("activo", True):       # suspensión: queda quién, cuándo y por qué
+        campos.update(suspension_motivo=d.get("suspension_motivo") or "", suspendido_en=ahora_ms(), suspendido_por=request.usuario["id"])
+    elif d.get("activo") is True:
+        campos.update(suspension_motivo=None, suspendido_en=None, suspendido_por=None)
     if d.get("password"):
         campos.update(hash=seguridad.hash_password(d["password"]), intentos_fallidos=0, bloqueado_hasta=None)
-    if "instalaciones" in d:
-        campos["instalaciones"] = {i: True for i in d["instalaciones"]} or None
+    if "instalaciones" in d or "dispositivos" in d:
+        insts = _con_instalaciones_de(d["instalaciones"] if "instalaciones" in d else sorted((u.get("instalaciones") or {}).keys()), d.get("dispositivos", []))
+        campos["instalaciones"] = {i: True for i in insts} or None
+    if "dispositivos" in d:
+        campos["dispositivos"] = {x: True for x in d["dispositivos"]} or None
     repo.actualizar("usuarios", pk, campos)
     if d.get("activo") is False or d.get("password") or "rol" in d:
         seguridad.revocar_sesiones_usuario(pk)            # efecto inmediato
@@ -98,7 +148,18 @@ def usuario_detalle(request, pk):
 def _esquema_instalacion(parcial=False):
     return {"codigo": Campo(texto(2, 40, r"[A-Za-z0-9_-]{2,40}", "Solo letras, números, guion y guion bajo (2–40)."), requerido=not parcial),
             "nombre": Campo(texto(2, 120), requerido=not parcial), "descripcion": Campo(texto(0, 500), requerido=False),
-            "ubicacion": Campo(texto(0, 200), requerido=False), "activa": Campo(booleano, requerido=False)}
+            "ubicacion": Campo(texto(0, 200), requerido=False), "activa": Campo(booleano, requerido=False),
+            "tecnico_id": Campo(texto(0, 64), requerido=False)}
+
+
+def _tecnico_de_instalacion(d):
+    """«Conexión directa»: el técnico asignado recibe solo las solicitudes de esta instalación. Vacío = bolsa de todos los técnicos."""
+    if d.get("tecnico_id"):
+        u = repo.get("usuarios", d["tecnico_id"])
+        if not u or u.get("rol") != "tecnico" or u.get("eliminado"):
+            raise invalido("El técnico indicado no existe.")
+    elif "tecnico_id" in d:
+        d["tecnico_id"] = None
 
 
 @ruta(("GET", "POST"))
@@ -106,16 +167,18 @@ def instalaciones(request):
     if request.method == "GET":
         vis = instalaciones_visibles(request.usuario)
         return JsonResponse([{"id": i["id"], "codigo": i["codigo"], "nombre": i["nombre"], "descripcion": i.get("descripcion"),
-                              "ubicacion": i.get("ubicacion"),
+                              "ubicacion": i.get("ubicacion"), "tecnico_id": i.get("tecnico_id"),
+                              "tecnico_nombre": repo.col("usuarios").get(i.get("tecnico_id"), {}).get("nombre"),
                               "activa": i.get("activa", True), "creada_en": iso(i.get("creada_en"))}
                              for i in sorted(repo.lista("instalaciones"), key=lambda x: x["nombre"].lower()) if _visible(i["id"], vis)], safe=False)
     _solo_admin(request)
     d = validar(request.cuerpo, _esquema_instalacion())
+    _tecnico_de_instalacion(d)
     if any(i["codigo"] == d["codigo"] for i in repo.lista("instalaciones")):
         raise conflicto("Ya existe una instalación con ese código.")
     iid = repo.nuevo_id()
     repo.guardar("instalaciones", iid, {"codigo": d["codigo"], "nombre": d["nombre"], "descripcion": d.get("descripcion"),
-                                        "ubicacion": d.get("ubicacion"),
+                                        "ubicacion": d.get("ubicacion"), "tecnico_id": d.get("tecnico_id"),
                                         "activa": d.get("activa", True), "creada_en": ahora_ms()})
     _audit(request, "instalacion_creada", "instalacion", iid)
     return JsonResponse({"id": iid}, status=201)
@@ -128,6 +191,7 @@ def instalacion_detalle(request, pk):
     d = validar(request.cuerpo, esquema, parcial=True)
     if pk not in repo.col("instalaciones"):
         raise no_encontrado()
+    _tecnico_de_instalacion(d)
     repo.actualizar("instalaciones", pk, d)
     _audit(request, "instalacion_modificada", "instalacion", pk, d)
     return sin_contenido()
@@ -259,7 +323,9 @@ def dispositivos(request):
             "cultivo_id": x.get("cultivo_id"), "cultivo_nombre": repo.col("cultivos").get(x.get("cultivo_id"), {}).get("nombre"),
             "codigo": x["codigo"], "nombre": x["nombre"], "activo": x.get("activo", True),
             "estado_conexion": x.get("estado_conexion", "sin_datos"), "ultima_comunicacion": iso(x.get("ultima_comunicacion")),
-            "calidad_enlace": x.get("calidad_enlace")}
+            "calidad_enlace": x.get("calidad_enlace"), "ubicacion": _ubic(x.get("ubicacion")),
+            "responsables": [{"id": u["id"], "nombre": u["nombre"]} for u in repo.lista("usuarios")
+                             if x["id"] in (u.get("dispositivos") or {}) and u.get("activo", True) and not u.get("eliminado")]}
             for x in sorted(repo.lista("dispositivos"), key=lambda x: x["codigo"])
             if _visible(x["instalacion_id"], vis) and (not iid or x["instalacion_id"] == iid)], safe=False)
     _solo_admin(request)
@@ -298,6 +364,10 @@ def dispositivo_detalle(request, pk):
     repo.actualizar("dispositivos", pk, d)
     _audit(request, "dispositivo_modificado", "dispositivo", pk, d)
     return sin_contenido()
+
+
+def _ubic(u):
+    return {"lat": u["lat"], "lng": u["lng"], "precision": u.get("precision"), "origen": u.get("origen"), "actualizada_en": iso(u.get("actualizada_en"))} if u else None
 
 
 # ============================================================ SENSORES
@@ -387,7 +457,7 @@ def regla_detalle(request, pk):
 
 
 # ============================================================ PARÁMETROS DEL SISTEMA
-CLAVES_PARAMETRO = ("minutos_sin_comunicacion", "retencion_historicos_dias")
+CLAVES_PARAMETRO = ("minutos_sin_comunicacion", "retencion_historicos_dias", "google_maps_api_key")
 
 
 @ruta(("GET",), roles=ADMIN)
@@ -401,6 +471,11 @@ def parametros(request):
 def parametro_detalle(request, clave):
     if clave not in CLAVES_PARAMETRO:
         raise no_encontrado()
+    if clave == "google_maps_api_key":
+        d = validar(request.cuerpo, {"valor": Campo(texto(0, 120, r"[A-Za-z0-9_-]{0,120}", "La clave solo tiene letras, números, guion y guion bajo."))})
+        repo.guardar("parametros", clave, {"valor": d["valor"]})
+        _audit(request, "parametro_modificado", "parametro", clave, {"valor": "(clave de mapa actualizada)"})
+        return sin_contenido()
     d = validar(request.cuerpo, {"valor": Campo(texto(1, 5, r"\d{1,5}", "Debe ser un entero positivo."))})
     if clave == "minutos_sin_comunicacion" and int(d["valor"]) < 1:
         raise invalido("Debe ser al menos 1.")

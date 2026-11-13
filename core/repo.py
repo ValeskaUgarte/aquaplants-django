@@ -17,6 +17,8 @@ TTL = {"usuarios": 10, "dispositivos": 1.5}
 PARAMETROS_INICIALES = {
     "minutos_sin_comunicacion": ("5", "Minutos sin recibir datos para considerar a un dispositivo sin comunicación "
                                       "(valor de demostración, validar con la contraparte)"),
+    "google_maps_api_key": ("", "Clave de la API de Google Maps (Maps JavaScript API) para mostrar el mapa de los dispositivos. "
+                                "Créala en Google Cloud y restríngela a tu dominio; sin clave se usa un mapa incrustado simple."),
     "retencion_historicos_dias": ("0", "Días de conservación de mediciones; 0 = sin depuración (por validar con la contraparte)"),
 }
 

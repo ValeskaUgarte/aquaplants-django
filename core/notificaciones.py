@@ -22,16 +22,29 @@ log = logging.getLogger("aquaplants.notificaciones")
 MAX_POR_USUARIO = 60
 
 
-def _destinatarios(instalacion_id, *, encargados, supervisores, administradores, excluir=None):
+def _destinatarios(instalacion_id, *, encargados, supervisores, administradores, excluir=None, dispositivo_id=None):
+    """Si el dispositivo tiene responsables asignados, los encargados que reciben el aviso son ellos; si no, los de la instalación."""
+    usuarios = [u for u in repo.lista("usuarios") if u.get("activo", True) and not u.get("eliminado") and u["id"] != excluir]
+    asignados = {u["id"] for u in usuarios if u.get("rol") == "encargado_cultivo" and dispositivo_id and dispositivo_id in (u.get("dispositivos") or {})}
     salida = []
-    for u in repo.lista("usuarios"):
-        if not u.get("activo", True) or u["id"] == excluir:
-            continue
+    for u in usuarios:
         rol = u.get("rol")
-        if (rol == "encargado_cultivo" and encargados and instalacion_id in (u.get("instalaciones") or {})) \
+        if (rol == "encargado_cultivo" and encargados and ((u["id"] in asignados) if asignados else instalacion_id in (u.get("instalaciones") or {}))) \
                 or (rol == "supervisor" and supervisores) or (rol == "administrador" and administradores):
             salida.append(u["id"])
     return salida
+
+
+def ids_tecnicos(tecnico_id=None, excluir=None):
+    """Técnico asignado (conexión directa) o, si no hay, todos los técnicos activos (bolsa de solicitudes)."""
+    if tecnico_id:
+        return [tecnico_id] if tecnico_id != excluir else []
+    return [u["id"] for u in repo.lista("usuarios") if u.get("rol") == "tecnico" and u.get("activo", True) and not u.get("eliminado") and u["id"] != excluir]
+
+
+def avisar(mapa, uids, tipo, titulo, mensaje, alerta_id="", instalacion_id="", critica=False):
+    """Aviso genérico a una lista de usuarios (lo usan las solicitudes técnicas)."""
+    _agregar(mapa, list(dict.fromkeys(uids)), tipo, titulo, mensaje, alerta_id, instalacion_id, critica=critica)
 
 
 def _agregar(mapa, uids, tipo, titulo, mensaje, alerta_id, instalacion_id="", critica=False):
@@ -70,7 +83,7 @@ def descartar_push():
 
 def por_alerta_nueva(aid, datos, mapa):
     iid = datos.get("instalacion_id", "")
-    uids = _destinatarios(iid, encargados=True, supervisores=True, administradores=True)
+    uids = _destinatarios(iid, encargados=True, supervisores=True, administradores=True, dispositivo_id=datos.get("dispositivo_id"))
     sin_com = datos.get("tipo") == "sin_comunicacion"
     titulo = "Sin comunicación" if sin_com else "EMERGENCIA" if datos.get("severidad") == "emergencia" else "Nueva alerta"
     _agregar(mapa, uids, "alerta_nueva", titulo, datos.get("mensaje", ""), aid, iid, critica=True)
@@ -89,14 +102,14 @@ def _contexto(alerta):
 
 def por_reconocida(aid, alerta, usuario, mapa):
     iid = alerta.get("instalacion_id", "")
-    uids = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=usuario["id"])
+    uids = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=usuario["id"], dispositivo_id=alerta.get("dispositivo_id"))
     _agregar(mapa, uids, "alerta_reconocida", "Alerta en revisión",
              f"{_quien(usuario)} fue a revisar. {_contexto(alerta)}".strip(), aid, iid)
 
 
 def por_revision(aid, alerta, usuario, solucionado, nota, mapa):
     iid = alerta.get("instalacion_id", "")
-    uids = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=usuario["id"])
+    uids = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=usuario["id"], dispositivo_id=alerta.get("dispositivo_id"))
     if solucionado:
         titulo, msg = "Revisión lista: falta confirmar", f"{_quien(usuario)} dice que quedó solucionado. Comentario: {nota}"
     else:
@@ -106,7 +119,7 @@ def por_revision(aid, alerta, usuario, solucionado, nota, mapa):
 
 def por_verificacion(aid, alerta, usuario, aprobada, nota, mapa):
     iid = alerta.get("instalacion_id", "")
-    uids = _destinatarios(iid, encargados=True, supervisores=False, administradores=True, excluir=usuario["id"])
+    uids = _destinatarios(iid, encargados=True, supervisores=False, administradores=True, excluir=usuario["id"], dispositivo_id=alerta.get("dispositivo_id"))
     if aprobada:
         titulo, msg = "Alerta resuelta", f"{_quien(usuario)} confirmó la solución." + (f" Comentario: {nota}" if nota else "")
     else:
@@ -118,14 +131,14 @@ def por_verificacion(aid, alerta, usuario, aprobada, nota, mapa):
 def por_cuestionada(aid, alerta, motivo, requiere_tecnico, mapa):
     """La medición no respalda la solución informada: se avisa a quien corresponde, con la recomendación de derivar a un técnico."""
     iid = alerta.get("instalacion_id", "")
-    uids = _destinatarios(iid, encargados=True, supervisores=True, administradores=True)
+    uids = _destinatarios(iid, encargados=True, supervisores=True, administradores=True, dispositivo_id=alerta.get("dispositivo_id"))
     msg = f"{motivo}" + (" Se recomienda derivar a un técnico o programar una mantención." if requiere_tecnico else "")
     _agregar(mapa, uids, "solucion_cuestionada", "Solución no confirmada por la medición", f"{_contexto(alerta)} — {msg}".strip(" —"), aid, iid, critica=True)
 
 
 def por_derivacion(aid, alerta, usuario, tipo_texto, nota, mapa):
     iid = alerta.get("instalacion_id", "")
-    uids = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=usuario["id"])
+    uids = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=usuario["id"], dispositivo_id=alerta.get("dispositivo_id"))
     _agregar(mapa, uids, "alerta_derivada", "Derivada a técnico / mantención",
              f"{_contexto(alerta)} — {_quien(usuario)} derivó la alerta: {tipo_texto}. {nota}".strip(" —"), aid, iid, critica=False)
 

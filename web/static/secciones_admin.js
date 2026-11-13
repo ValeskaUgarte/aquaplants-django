@@ -16,39 +16,58 @@ const accion = (m, fn, texto, recargar) => async () => { try { await fn(); m.ok(
 
 /* ---------------- Usuarios ---------------- */
 async function secUsuarios(z) {
-  const m = marco(z), [usuarios, insts] = await Promise.all([api.get('/usuarios'), api.get('/instalaciones')]);
+  const m = marco(z), [usuarios, insts, disp] = await Promise.all([api.get('/usuarios'), api.get('/instalaciones'), api.get('/dispositivos')]);
   const roles = Object.entries(ROL).map(([valor, texto]) => ({ valor, texto }));
   const campoInst = { nombre: 'instalaciones', etiqueta: 'Instalaciones asignadas (Encargado de cultivo)', tipo: 'multi', opciones: opciones(insts, 'id', 'nombre') };
+  const campoDisp = { nombre: 'dispositivos', etiqueta: 'Dispositivos a cargo (recibe sus alertas; también sirve para un hogar o un cultivo pequeño)', tipo: 'multi',
+    opciones: disp.map((d) => ({ valor: d.id, texto: `${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo} (${nombreDe(insts, d.instalacion_id)})` })) };
   const recargar = () => secUsuarios(z);
   const nuevo = () => m.mostrarForm(formulario({ textoBoton: 'Crear usuario', onCancelar: m.cerrarForm, campos: [
     { nombre: 'email', etiqueta: 'Correo', tipo: 'email', requerido: true }, { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true },
-    { nombre: 'rol', etiqueta: 'Rol', tipo: 'select', opciones: roles, requerido: true },
-    { nombre: 'password', etiqueta: 'Contraseña inicial', tipo: 'password', requerido: true, ayuda: 'Mínimo 12 caracteres con mayúscula, minúscula, número y símbolo.' }, campoInst],
-    onEnviar: async (d) => { await api.post('/usuarios', d); await recargar(); } }));
+    { nombre: 'rol', etiqueta: 'Rol', tipo: 'select', opciones: roles, requerido: true, ayuda: 'El técnico o servicio técnico recibe solicitudes de arreglo, reemplazo, retiro y mantención; no ve alertas ni cultivos.' },
+    { nombre: 'password', etiqueta: 'Contraseña inicial', tipo: 'password', requerido: true, ayuda: 'Mínimo 12 caracteres con mayúscula, minúscula, número y símbolo.' }, campoInst, campoDisp],
+    onEnviar: async (d) => { await api.post('/usuarios', d); m.ok('Usuario creado.'); await recargar(); } }));
   const editar = (u) => m.mostrarForm(formulario({ textoBoton: 'Guardar cambios', onCancelar: m.cerrarForm,
-    inicial: { nombre: u.nombre, rol: u.rol, activo: u.activo, instalaciones: u.instalaciones }, campos: [
-      { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text' }, { nombre: 'rol', etiqueta: 'Rol', tipo: 'select', opciones: roles }, { nombre: 'activo', etiqueta: 'Cuenta activa', tipo: 'checkbox' },
-      { nombre: 'password', etiqueta: 'Nueva contraseña (opcional)', tipo: 'password', ayuda: 'Al cambiarla se cierran las sesiones del usuario.' }, campoInst],
-    onEnviar: async (d) => { await api.patch(`/usuarios/${u.id}`, d); await recargar(); } }));
+    inicial: { nombre: u.nombre, rol: u.rol, activo: u.activo, instalaciones: u.instalaciones, dispositivos: u.dispositivos, suspension_motivo: u.suspension ? u.suspension.motivo : '' }, campos: [
+      { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text' }, { nombre: 'rol', etiqueta: 'Rol', tipo: 'select', opciones: roles },
+      { nombre: 'activo', etiqueta: 'Cuenta activa', tipo: 'checkbox', ayuda: 'Desmárcala para suspender la cuenta sin borrarla.' }, { nombre: 'suspension_motivo', etiqueta: 'Motivo de la suspensión', tipo: 'text' },
+      { nombre: 'password', etiqueta: 'Nueva contraseña (opcional)', tipo: 'password', ayuda: 'Al cambiarla se cierran las sesiones del usuario.' }, campoInst, campoDisp],
+    onEnviar: async (d) => { await api.patch(`/usuarios/${u.id}`, d); m.ok('Usuario actualizado.'); await recargar(); } }));
+  const suspender = (u) => m.mostrarForm(formulario({ textoBoton: 'Suspender cuenta', onCancelar: m.cerrarForm, campos: [{ nombre: 'suspension_motivo', etiqueta: `Motivo para suspender a ${u.nombre}`, tipo: 'text', requerido: true }],
+    onEnviar: async (d) => { await api.patch(`/usuarios/${u.id}`, { activo: false, suspension_motivo: d.suspension_motivo }); m.ok(`${u.nombre} quedó suspendido: no puede entrar, pero se conserva su historial.`); await recargar(); } }));
+  const eliminar = async (u) => {
+    if (!window.confirm(`¿Eliminar la cuenta de ${u.nombre}?\n\nNo podrá volver a entrar y su correo quedará libre. Su nombre se conserva en las bitácoras e informes. ${u.rol === 'tecnico' ? 'Sus solicitudes abiertas vuelven a la bolsa de técnicos.' : ''}`)) return;
+    try { await api.del(`/usuarios/${u.id}`); m.ok(`Cuenta de ${u.nombre} eliminada.`); await recargar(); } catch (e) { m.mal(e); }
+  };
+  const nombresDisp = (ids) => ids.map((id) => { const d = disp.find((x) => x.id === id); return d ? `${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo}` : null; }).filter(Boolean);
   m.cuerpo.append(el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevo }, 'Nuevo usuario')),
-    tabla([{ titulo: 'Nombre', campo: 'nombre' }, { titulo: 'Correo', campo: 'email' }, { titulo: 'Rol', ver: (f) => ROL[f.rol] }, { titulo: 'Estado', ver: (f) => (f.activo ? 'Activo' : 'Desactivado') },
-      { titulo: '2FA', ver: (f) => (f.totp_activo ? 'Sí' : 'No') }, { titulo: 'Instalaciones', ver: (f) => (f.rol === 'encargado_cultivo' ? f.instalaciones.map((i) => nombreDe(insts, i)).join(', ') || 'ninguna' : 'todas') },
-      { titulo: 'Último ingreso', ver: (f) => fechaHora(f.ultimo_login) }, { titulo: '', ver: (f) => botonTexto('Editar', () => editar(f)) }], usuarios));
+    el('p', { class: 'ayuda' }, 'Registro de personas con acceso. Suspender impide entrar pero conserva todo; eliminar cierra la cuenta para siempre (se conserva el nombre en el historial). Vincula a cada persona con los dispositivos que tiene a cargo: sus alertas le llegan a ella.'),
+    tabla([{ titulo: 'Nombre', campo: 'nombre' }, { titulo: 'Correo', campo: 'email' }, { titulo: 'Rol', ver: (f) => ROL[f.rol] },
+      { titulo: 'Estado', ver: (f) => (f.activo ? 'Activo' : [el('strong', { class: 'alerta-n' }, 'Suspendido'), f.suspension ? el('div', { class: 'meta suave' }, `${f.suspension.motivo || 'sin motivo'}${f.suspension.por ? ` · por ${f.suspension.por}` : ''}`) : null]) },
+      { titulo: '2FA', ver: (f) => (f.totp_activo ? 'Sí' : 'No') },
+      { titulo: 'A cargo', ver: (f) => (f.rol === 'tecnico' ? el('span', { class: 'suave' }, 'recibe solicitudes') : f.rol !== 'encargado_cultivo' ? 'todo' : [
+        ...nombresDisp(f.dispositivos).map((t) => el('span', { class: 'chip-var' }, t)), nombresDisp(f.dispositivos).length ? null : el('span', { class: 'suave' }, f.instalaciones.map((i) => nombreDe(insts, i)).join(', ') || 'nada asignado')]) },
+      { titulo: 'Último ingreso', ver: (f) => fechaHora(f.ultimo_login) },
+      { titulo: '', ver: (f) => [botonTexto('Editar', () => editar(f)), ' ', f.activo ? botonTexto('Suspender', () => suspender(f)) : botonTexto('Reactivar', accion(m, () => api.patch(`/usuarios/${f.id}`, { activo: true }), 'Cuenta reactivada.', recargar)),
+        ' ', botonTexto('Eliminar', () => eliminar(f))] }], usuarios));
 }
 
 /* ---------------- Instalaciones ---------------- */
 async function secInstalaciones(z) {
-  const m = marco(z), datos = await api.get('/instalaciones'), recargar = () => secInstalaciones(z);
+  const m = marco(z), [datos, tecs] = await Promise.all([api.get('/instalaciones'), api.get('/tecnicos')]), recargar = () => secInstalaciones(z);
+  const campoTec = { nombre: 'tecnico_id', etiqueta: 'Técnico o servicio técnico asignado (conexión directa)', tipo: 'select', ayuda: 'Las solicitudes de esta instalación le llegan solo a él. Sin técnico asignado llegan a todos los técnicos.',
+    opciones: [{ valor: '', texto: 'Ninguno (a todos los técnicos)' }, ...tecs.map((t) => ({ valor: t.id, texto: t.nombre }))] };
   const nueva = () => m.mostrarForm(formulario({ textoBoton: 'Crear instalación', onCancelar: m.cerrarForm, campos: [
     { nombre: 'codigo', etiqueta: 'Código (id_sistema)', tipo: 'text', requerido: true, ayuda: 'Letras, números, guion. Identifica a la instalación.' },
     { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true }, { nombre: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text' },
-    { nombre: 'descripcion', etiqueta: 'Descripción', tipo: 'text' }],
+    { nombre: 'descripcion', etiqueta: 'Descripción', tipo: 'text' }, campoTec],
     onEnviar: async (d) => { await api.post('/instalaciones', d); await recargar(); } }));
-  const editar = (i) => m.mostrarForm(formulario({ textoBoton: 'Guardar cambios', onCancelar: m.cerrarForm, inicial: i, campos: [
-    { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text' }, { nombre: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text' }, { nombre: 'descripcion', etiqueta: 'Descripción', tipo: 'text' }, { nombre: 'activa', etiqueta: 'Instalación activa', tipo: 'checkbox' }],
+  const editar = (i) => m.mostrarForm(formulario({ textoBoton: 'Guardar cambios', onCancelar: m.cerrarForm, inicial: { ...i, tecnico_id: i.tecnico_id || '' }, campos: [
+    { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text' }, { nombre: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text' }, { nombre: 'descripcion', etiqueta: 'Descripción', tipo: 'text' }, { nombre: 'activa', etiqueta: 'Instalación activa', tipo: 'checkbox' }, campoTec],
     onEnviar: async (d) => { await api.patch(`/instalaciones/${i.id}`, d); await recargar(); } }));
   m.cuerpo.append(el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nueva }, 'Nueva instalación')),
     tabla([{ titulo: 'Código', campo: 'codigo' }, { titulo: 'Nombre', campo: 'nombre' }, { titulo: 'Ubicación', ver: (f) => f.ubicacion || '—' }, { titulo: 'Descripción', ver: (f) => f.descripcion || '—' },
+      { titulo: 'Técnico asignado', ver: (f) => f.tecnico_nombre || el('span', { class: 'suave' }, 'a todos') },
       { titulo: 'Estado', ver: (f) => (f.activa ? 'Activa' : 'Inactiva') }, { titulo: '', ver: (f) => botonTexto('Editar', () => editar(f)) }], datos));
 }
 
@@ -134,6 +153,9 @@ async function secDispositivos(z) {
     el('h3', {}, 'Dispositivos'),
     tabla([{ titulo: 'Cultivo', ver: (f) => el('strong', {}, f.cultivo_nombre || '—') }, { titulo: 'Dispositivo', ver: (f) => `${f.codigo} · ${f.nombre}` }, { titulo: 'Instalación', ver: (f) => nombreDe(insts, f.instalacion_id) },
       { titulo: 'Sensores', ver: (f) => { const l = sens.filter((s) => s.dispositivo_id === f.id); return l.length ? l.map((s) => el('span', { class: 'chip-var', title: s.nombre }, s.tipo_nombre)) : el('span', { class: 'suave' }, 'ninguno'); } },
+      { titulo: 'A cargo', ver: (f) => (f.responsables || []).length ? f.responsables.map((r) => r.nombre).join(', ') : el('span', { class: 'suave' }, 'la instalación') },
+      { titulo: 'Ubicación', ver: (f) => (f.ubicacion ? [el('a', { href: enlaceMapa(f.ubicacion), target: '_blank', rel: 'noopener' }, `${f.ubicacion.lat.toFixed(4)}, ${f.ubicacion.lng.toFixed(4)}`),
+        el('div', { class: 'meta suave' }, `${f.ubicacion.origen === 'manual' ? 'a mano' : 'GPS'} · ${hace(f.ubicacion.actualizada_en)}`)] : el('span', { class: 'suave' }, 'sin GPS')) },
       { titulo: 'Conexión', ver: (f) => estado(f.estado_conexion) }, { titulo: 'Última comunicación', ver: (f) => fechaHora(f.ultima_comunicacion) }, { titulo: 'Activo', ver: (f) => (f.activo ? 'Sí' : 'No') },
       { titulo: 'Acciones', ver: (f) => el('span', { class: 'acciones' }, botonTexto(f.activo ? 'Desactivar' : 'Activar', accion(m, () => api.patch(`/dispositivos/${f.id}`, { activo: !f.activo }), 'Dispositivo actualizado.', recargar)),
         botonTexto('Rotar secreto', async () => { if (confirm('El secreto anterior dejará de funcionar. ¿Continuar?')) { try { const r = await api.post(`/dispositivos/${f.id}/rotar-secreto`); mostrarSecreto(r.secreto); } catch (e) { m.mal(e); } } })) }], disp),
@@ -186,7 +208,7 @@ async function secReglas(z) {
 async function secParametros(z) {
   const m = marco(z), datos = await api.get('/parametros'), recargar = () => secParametros(z);
   datos.forEach((p) => {
-    const entrada = el('input', { type: 'number', min: 0, value: p.valor, required: true });
+    const texto = p.clave === 'google_maps_api_key', entrada = el('input', texto ? { type: 'text', value: p.valor, maxlength: 120, autocomplete: 'off', placeholder: 'AIza… (vacío = mapa simple)' } : { type: 'number', min: 0, value: p.valor, required: true });
     const f = el('form', { class: 'panel-form' }, el('label', { class: 'campo' }, el('span', {}, p.clave.replaceAll('_', ' ')), entrada, el('small', { class: 'ayuda' }, p.descripcion)), el('button', { class: 'boton', type: 'submit' }, 'Guardar'));
     f.addEventListener('submit', (e) => { e.preventDefault(); accion(m, () => api.put(`/parametros/${p.clave}`, { valor: String(entrada.value) }), 'Parámetro guardado.', recargar)(); });
     m.cuerpo.append(f);
@@ -263,7 +285,7 @@ async function vSeguimiento() { const z = contenido.firstChild; vaciar(z).append
 const fechaLocal = (dias = 0) => { const d = new Date(Date.now() + dias * 86400000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const fmtMin = (v) => (v == null ? '—' : v < 1 ? '< 1 min' : v < 60 ? `${fmt(v, 0)} min` : `${Math.floor(v / 60)} h ${Math.round(v % 60)} min`);
 const barraPct = (v) => (v == null ? el('span', { class: 'suave' }, '—') : el('span', { class: 'barra-pct', title: `${fmt(v, 1)} %` },
-  el('span', { class: `relleno ${v >= 80 ? 'alto' : v >= 50 ? 'medio' : 'bajo'}`, style: `width:${Math.max(2, Math.min(100, v))}%` }), el('b', {}, `${fmt(v, 0)} %`)));
+  el('span', { class: `relleno ${v >= 80 ? 'alto' : v >= 50 ? 'medio' : 'bajo'}`, style: { width: `${Math.max(2, Math.min(100, v))}%` } }), el('b', {}, `${fmt(v, 0)} %`)));
 const CONTENIDOS = [['completo', 'Informe completo', 'Excel con todas las hojas: mediciones, alertas, eventos y trabajadores.'], ['mediciones', 'Mediciones', 'Historial de lo que midió cada sensor.'],
   ['alertas', 'Alertas y su seguimiento', 'Quién atendió cada alerta y qué comentó.'], ['eventos', 'Eventos', 'Cortes de comunicación, reconexiones y datos rechazados.'],
   ['resumen', 'Resumen por cultivo', 'Mínimo, promedio y máximo de cada sensor.'], ['trabajadores', 'Trabajadores', 'Qué hizo cada persona, su efectividad y las mantenciones.']];

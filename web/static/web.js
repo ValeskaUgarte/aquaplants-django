@@ -8,8 +8,10 @@ const etiquetaCultivo = (cultivo, disp) => `${cultivo || 'Sin cultivo'} · ${dis
 function armar() {
   vaciar(raiz);
   const u = AQ.usuario, rol = u.rol;
-  const enlaces = [['#/', 'Panel', true], ['#/alertas', 'Alertas', true], ['#/seguimiento', 'Seguimiento de alertas', rol !== 'encargado_cultivo'],
-    ['#/comparacion', 'Comparación', rol !== 'encargado_cultivo'], ['#/administracion/informes', 'Informes', rol === 'administrador'],
+  const tec = rol === 'tecnico';
+  const enlaces = [['#/', tec ? 'Solicitudes técnicas' : 'Panel', true], ['#/alertas', 'Alertas', !tec], ['#/seguimiento', 'Seguimiento de alertas', !tec && rol !== 'encargado_cultivo'],
+    ['#/servicio', 'Servicio técnico', !tec], ['#/ubicacion', 'Ubicación', true], ['#/estadisticas', tec ? 'Mis estadísticas' : 'Estadísticas', true],
+    ['#/comparacion', 'Comparación', !tec && rol !== 'encargado_cultivo'], ['#/administracion/informes', 'Informes', rol === 'administrador'],
     ['#/simulacion', 'Simulación', rol === 'administrador'], ['#/administracion', 'Administración', rol === 'administrador'], ['#/cuenta', 'Mi cuenta', true]];
   contenido = el('main', { class: 'contenido' });
   raiz.append(el('div', { class: 'aplicacion' },
@@ -34,14 +36,16 @@ async function enrutar() {
   document.querySelectorAll('#menu a[data-h]').forEach((n) => n.classList.toggle('activo', (ruta === '' && n.dataset.h === '#/') || (ruta === 'administracion' && a === 'informes' ? n.dataset.h === '#/administracion/informes' : (ruta !== '' && n.dataset.h === `#/${ruta === 'instalacion' ? '' : ruta}` && ruta !== 'instalacion'))));
   const rol = AQ.usuario.rol;
   const vistas = {
-    '': () => vPanel(), instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(), seguimiento: () => (rol === 'encargado_cultivo' ? vPanel() : vSeguimiento()),
+    '': () => (rol === 'tecnico' ? vServicioTecnico(zona) : vPanel()), servicio: () => vServicioTecnico(zona), ubicacion: () => vUbicacion(zona), estadisticas: () => vEstadisticas(zona),
+    instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(), seguimiento: () => (rol === 'encargado_cultivo' ? vPanel() : vSeguimiento()),
     comparacion: () => (rol === 'encargado_cultivo' ? vPanel() : vComparacion()), simulacion: () => (rol === 'administrador' ? vSimulacion() : vPanel()),
     administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : vPanel()), cuenta: () => vCuenta(),
   };
   const zona = el('div', {});
   vaciar(contenido).append(zona);
+  const solo = { tecnico: ['', 'servicio', 'ubicacion', 'estadisticas', 'cuenta'] };            // el técnico solo ve sus solicitudes, sus equipos y su cuenta
   try {
-    const r = await (vistas[ruta] || vistas[''])(zona);
+    const r = await (vistas[solo[rol] && !solo[rol].includes(ruta) ? '' : ruta] || vistas[''])(zona);
     if (mio !== vistaActiva) return;
     if (r && r.refrescar) temporizador = setInterval(async () => { if (mio === vistaActiva) { try { await r.refrescar(); } catch { /* reintenta */ } } }, r.cada || 5000);
   } catch (e) { if (mio === vistaActiva) vaciar(zona).append(aviso('error', mensajeError(e))); }

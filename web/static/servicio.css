@@ -1,0 +1,19 @@
+/* Estilos compartidos por la web y la app: solicitudes técnicas, ubicación y estadísticas. Colores fijos para que sirvan en ambas. */
+.card-informe { background:#fff; border:1px solid #dde3e7; border-radius:12px; padding:.9rem 1rem; margin:.6rem 0; }
+.card-informe h4 { margin:0 0 .6rem; font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; color:#5b6b75; } .card-informe h5 { margin:.8rem 0 .4rem; font-size:.85rem; color:#17262f; }
+.barra-filtros { display:flex; flex-wrap:wrap; gap:.8rem; align-items:end; margin:.4rem 0 .6rem; } .filtro-sensores { max-width:420px; }
+.lista-mantenciones,.lista-ubic { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr)); gap:.8rem; }
+.enlaces-mapa { font-size:.88rem; margin:.15rem 0; } .enlaces-mapa a,.ubic a { color:#1565c0; }
+.mantencion .cerrar-mant,.mantencion .asignar { display:grid; gap:.4rem; margin-top:.5rem; padding-top:.5rem; border-top:1px dashed #b7dfe3; } .mantencion select,.mantencion input,.mantencion textarea { width:100%; box-sizing:border-box; }
+.etiqueta.m-accion { background:#e8f6f7; color:#006064; }
+/* mapa */
+.mapa-caja { margin:.6rem 0; } .mapa-g,.mapa-marco { width:100%; border:1px solid #dde3e7; border-radius:12px; background:#eef3f6; } .mapa-marco { display:block; }
+.info-mapa { font-size:.85rem; } .chip-est { border-radius:999px; padding:.05rem .55rem; font-size:.78rem; background:#eceff1; color:#5b6b75; }
+.chip-est[data-e="en_linea"] { background:#e3f3e8; color:#1b6e3d; } .chip-est[data-e="sin_comunicacion"] { background:#fdeaea; color:#a11d1d; }
+/* estadísticas */
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.6rem; margin:.4rem 0 .8rem; }
+.kpi { background:#fff; border:1px solid #dde3e7; border-radius:12px; padding:.6rem .8rem; display:grid; gap:.1rem; } .kpi strong { font-size:1.5rem; line-height:1.15; } .kpi-tit { font-size:.76rem; text-transform:uppercase; letter-spacing:.04em; color:#5b6b75; }
+.dos-col { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:.8rem; }
+.barras-h { display:grid; gap:.35rem; } .fila-barra { display:grid; grid-template-columns:minmax(90px,38%) 1fr auto; gap:.5rem; align-items:center; font-size:.86rem; }
+.fila-barra .etq { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .fila-barra .pista { background:#eceff1; border-radius:999px; height:.9rem; overflow:hidden; } .fila-barra .relleno { display:block; height:100%; background:#1b8a4b; border-radius:999px; }
+.barra-a { fill:#c98a00; } .barra-r { fill:#1b8a4b; } .g-rejilla { stroke:#e3e8eb; stroke-width:1; } .lg.a { color:#c98a00; } .lg.r { color:#1b8a4b; }

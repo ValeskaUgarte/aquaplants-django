@@ -14,7 +14,7 @@ from django.conf import settings
 
 from core import alertas as modulo_alertas
 from core import repo
-from core.vistas.mantencion import ESTADOS as ESTADOS_MANT, TIPOS as TIPOS_MANT
+from core.vistas.mantencion import ACCIONES as ACCIONES_MANT, ESTADOS as ESTADOS_MANT, RESOLUCIONES, TIPOS as TIPOS_MANT
 from core.http import ErrorApi
 from core.rtdb import rtdb
 from core.util import ahora_ms, clave_ms
@@ -25,7 +25,7 @@ TOPE_FILAS = {"xlsx": 150_000, "csv": 800_000}   # filas de mediciones por archi
 AGREGACIONES = {"crudo": None, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
 NIVELES = ("crudo", "5m", "15m", "1h", "1d")      # de más a menos detalle
 NOMBRE_AGREGACION = {"crudo": "sin agrupar (cada medición)", "5m": "cada 5 minutos", "15m": "cada 15 minutos", "1h": "cada hora", "1d": "diaria"}
-TIPOS = ("completo", "mediciones", "alertas", "eventos", "resumen", "trabajadores")
+TIPOS = ("completo", "mediciones", "alertas", "eventos", "resumen", "trabajadores", "mantenciones")
 ESTADOS = {"activa": "Activa", "reconocida": "Reconocida (en revisión)", "revisada": "Revisada (falta confirmar)", "resuelta": "Resuelta"}
 
 
@@ -216,6 +216,10 @@ def construir(f, usuario):
         hojas["eventos"] = _hoja_eventos(f)
     if quiere("completo", "trabajadores"):
         hojas.update(_hojas_trabajadores(f))
+    if quiere("completo", "mantenciones"):
+        hojas.update(_hojas_tecnicos(f))
+        if "mantenciones" not in hojas:
+            hojas["mantenciones"] = _hoja_mantenciones(_mant_del_periodo(f))
     meta.update(generado=_local(ahora_ms()), usuario=usuario.get("nombre"), filtros=_descripcion_filtros(f))
     hojas["meta"] = meta
     return hojas
@@ -433,6 +437,66 @@ def desempeno_trabajadores(f):
     return salida, detalle, mant
 
 
+def _mant_del_periodo(f):
+    return [m for m in repo.lista("mantenciones") if f["desde"] <= m.get("creada_en", 0) < f["hasta"]
+            and (not f["instalacion_id"] or m.get("instalacion_id") == f["instalacion_id"]) and (not f["cultivo_id"] or m.get("cultivo_id") == f["cultivo_id"])]
+
+
+def _min(a, b):
+    return round(max(0, (b - a) / 60000), 1) if a and b else None
+
+
+def _hoja_mantenciones(mant):
+    """Cada solicitud técnica con sus tiempos: cuánto tardó en aceptarse y en resolverse, y cómo terminó."""
+    inst, cult, disp, usr = repo.col("instalaciones"), repo.col("cultivos"), repo.col("dispositivos"), repo.col("usuarios")
+    cab = ["Solicitada el", "Instalación", "Cultivo", "Dispositivo", "Alerta", "Tipo de falla", "Qué se pidió", "Estado", "Solicitada por", "Técnico asignado", "Técnico (texto)",
+           "Motivo", "Aceptada el", "Minutos hasta aceptarla", "Realizada el", "Minutos hasta resolverla", "Cómo quedó", "Repuestos", "Detalle del trabajo", "Cerrada por"]
+    def alerta(m):
+        return (rtdb().get(f"alertas/{m['alerta_id']}/mensaje") if m.get("alerta_id") else None) or None
+    filas = [[_local(m.get("creada_en")), inst.get(m.get("instalacion_id"), {}).get("nombre"), cult.get(m.get("cultivo_id"), {}).get("nombre"),
+              disp.get(m.get("dispositivo_id"), {}).get("codigo"), alerta(m), TIPOS_MANT.get(m["tipo"], m["tipo"]), ACCIONES_MANT.get(m.get("accion") or "arreglo"),
+              ESTADOS_MANT.get(m["estado"], m["estado"]), usr.get(m.get("creada_por"), {}).get("nombre"), usr.get(m.get("tecnico_id"), {}).get("nombre") or "Bolsa (sin asignar)",
+              m.get("tecnico") or None, m.get("nota"), _local(m.get("aceptada_en")), _min(m.get("creada_en"), m.get("aceptada_en")), _local(m.get("completada_en")),
+              _min(m.get("creada_en"), m.get("completada_en")) if m["estado"] == "completada" else None, RESOLUCIONES.get(m.get("resolucion")), m.get("repuestos"),
+              m.get("resultado"), usr.get(m.get("completada_por"), {}).get("nombre")] for m in sorted(mant, key=lambda x: x.get("creada_en", 0))]
+    return cab, filas
+
+
+def _hojas_tecnicos(f):
+    """Resumen por técnico y ubicación actual de los dispositivos (para saber dónde está cada equipo)."""
+    usr, inst, cult = repo.col("usuarios"), repo.col("instalaciones"), repo.col("cultivos")
+    mant = [m for m in repo.lista("mantenciones") if f["desde"] <= m.get("creada_en", 0) < f["hasta"]
+            and (not f["instalacion_id"] or m.get("instalacion_id") == f["instalacion_id"]) and (not f["cultivo_id"] or m.get("cultivo_id") == f["cultivo_id"])]
+    filas = []
+    for tid in [u["id"] for u in repo.lista("usuarios") if u.get("rol") == "tecnico" and not u.get("eliminado")] + [""]:
+        propias = [m for m in mant if (m.get("tecnico_id") or "") == tid]
+        if not propias and not tid:
+            continue
+        hechas = [m for m in propias if m["estado"] == "completada"]
+        bien = [m for m in hechas if m.get("resolucion") and m["resolucion"] != "sin_solucion"]
+        prom = lambda v: round(sum(v) / len(v), 1) if v else None  # noqa: E731
+        filas.append([usr.get(tid, {}).get("nombre") if tid else "Bolsa (sin asignar)", len(propias), sum(1 for m in propias if m.get("aceptada_en")), len(hechas),
+                      sum(1 for m in propias if m["estado"] in ("pendiente", "en_curso")), sum(1 for m in propias if m["estado"] == "cancelada"),
+                      prom([_min(m["creada_en"], m["aceptada_en"]) for m in propias if m.get("aceptada_en")]),
+                      prom([_min(m["creada_en"], m["completada_en"]) for m in hechas if m.get("completada_en")]),
+                      round(100 * len(bien) / len(hechas), 1) if hechas else None, sum(1 for m in hechas if m.get("resolucion") == "arreglado"),
+                      sum(1 for m in hechas if m.get("resolucion") == "reemplazado"), sum(1 for m in hechas if m.get("resolucion") == "retirado"),
+                      sum(1 for m in hechas if m.get("resolucion") == "mantencion_realizada"), sum(1 for m in hechas if m.get("resolucion") == "sin_solucion")])
+    cab_t = ["Técnico", "Solicitudes", "Aceptadas", "Realizadas", "Abiertas", "Canceladas", "Respuesta media (min)", "Resolución media (min)", "Resueltas con éxito (%)",
+             "Arreglos", "Reemplazos", "Retiros", "Mantenciones", "Sin solución"]
+    responsables = lambda d: ", ".join(u["nombre"] for u in repo.lista("usuarios") if d["id"] in (u.get("dispositivos") or {}) and u.get("activo", True) and not u.get("eliminado")) or None  # noqa: E731
+    dispositivos = []
+    for d in sorted(repo.lista("dispositivos"), key=lambda x: (inst.get(x["instalacion_id"], {}).get("nombre", ""), x["codigo"])):
+        if (f["instalacion_id"] and d["instalacion_id"] != f["instalacion_id"]) or (f["cultivo_id"] and d.get("cultivo_id") != f["cultivo_id"]):
+            continue
+        u = d.get("ubicacion") or {}
+        dispositivos.append([inst.get(d["instalacion_id"], {}).get("nombre"), cult.get(d.get("cultivo_id"), {}).get("nombre"), d["codigo"], d.get("estado_conexion", "sin_datos"),
+                             _local(d.get("ultima_comunicacion")), u.get("lat"), u.get("lng"), u.get("precision"), {"gps": "GPS", "manual": "Manual"}.get(u.get("origen")) if u else None,
+                             _local(u.get("actualizada_en")) if u else None, f"https://www.google.com/maps?q={u['lat']},{u['lng']}" if u else None, responsables(d)])
+    cab_d = ["Instalación", "Cultivo", "Dispositivo", "Conexión", "Última comunicación", "Latitud", "Longitud", "Precisión (m)", "Origen", "Posición actualizada", "Ver en Google Maps", "Responsables"]
+    return {"tecnicos": (cab_t, filas), "dispositivos": (cab_d, dispositivos)}
+
+
 def _hojas_trabajadores(f):
     inst, cult, disp, usr = repo.col("instalaciones"), repo.col("cultivos"), repo.col("dispositivos"), repo.col("usuarios")
     personas, detalle, mant = desempeno_trabajadores(f)
@@ -442,11 +506,7 @@ def _hojas_trabajadores(f):
     filas = [[p["nombre"], p["rol_texto"], p["alertas_ambito"], p["reconocidas"], p["cumplimiento"], p["respuesta_min"], p["soluciones"], p["efectivas"], p["cuestionadas"],
               p["pendientes"], p["efectividad"], p["resolucion_min"], p["sin_solucion"], p["confirmaciones"], p["rechazos"], p["derivaciones"], p["mantenciones_cerradas"],
               p["sin_atender"]] for p in personas]
-    cab_m = ["Derivada el", "Instalación", "Cultivo", "Dispositivo", "Tipo", "Estado", "Derivada por", "Técnico", "Motivo", "Realizada el", "Realizada por", "Resultado"]
-    filas_m = [[_local(m.get("creada_en")), inst.get(m.get("instalacion_id"), {}).get("nombre"), cult.get(m.get("cultivo_id"), {}).get("nombre"),
-                disp.get(m.get("dispositivo_id"), {}).get("codigo"), TIPOS_MANT.get(m["tipo"], m["tipo"]), ESTADOS_MANT.get(m["estado"], m["estado"]),
-                usr.get(m.get("creada_por"), {}).get("nombre"), m.get("tecnico") or None, m.get("nota"), _local(m.get("completada_en")),
-                usr.get(m.get("completada_por"), {}).get("nombre"), m.get("resultado")] for m in sorted(mant, key=lambda x: x.get("creada_en", 0))]
+    cab_m, filas_m = _hoja_mantenciones(mant)
     return {"trabajadores": (cab, filas),
             "trabajadores_detalle": (["Fecha y hora", "Persona", "Rol", "Instalación", "Cultivo", "Alerta", "Acción", "Comentario", "Resultado"], sorted(detalle, key=lambda x: x[0])),
             "mantenciones": (cab_m, filas_m)}
@@ -464,7 +524,7 @@ def _fmt_csv(v):
 
 
 def a_csv(hojas, tipo):
-    nombre = {"mediciones": "mediciones", "alertas": "alertas", "eventos": "eventos", "resumen": "_resumen_sensores", "trabajadores": "trabajadores"}[tipo]
+    nombre = {"mediciones": "mediciones", "alertas": "alertas", "eventos": "eventos", "resumen": "_resumen_sensores", "trabajadores": "trabajadores", "mantenciones": "mantenciones"}[tipo]
     cab, filas = hojas[nombre]
     sal = io.StringIO()
     w = csv.writer(sal, delimiter=";", lineterminator="\r\n")
@@ -536,7 +596,8 @@ def a_xlsx(hojas, f):
         ws.column_dimensions[get_column_letter(j)].width = ancho
 
     titulos = {"mediciones": "Mediciones", "alertas": "Alertas", "eventos": "Eventos", "trabajadores": "Trabajadores",
-               "trabajadores_detalle": "Detalle de gestión", "mantenciones": "Mantenciones"}
+               "trabajadores_detalle": "Detalle de gestión", "mantenciones": "Mantenciones", "tecnicos": "Técnicos",
+               "dispositivos": "Dispositivos y ubicación"}
     for clave, titulo in titulos.items():
         if clave not in hojas:
             continue
