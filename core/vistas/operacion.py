@@ -15,6 +15,7 @@ from core import repo, seguridad
 from core.http import (Campo, ErrorApi, booleano, conflicto, exigir_acceso_instalacion, fecha_iso, instalaciones_visibles,
                        invalido, ip_cliente, no_encontrado, numero, id_valor, ruta, sin_contenido, texto, validar)
 from core.ingesta import procesar_lote
+from core.vistas.mantencion import mantencion_publica
 from core.rtdb import rtdb
 from core.util import ahora_ms, clave_ms, iso, iso_a_ms
 
@@ -171,7 +172,7 @@ def alertas(request):
 def _lista_alertas(usuario, iid=None, estado=None, limite=100):
     vis = instalaciones_visibles(usuario)
     inst, sens, disp, usr = repo.col("instalaciones"), repo.col("sensores"), repo.col("dispositivos"), repo.col("usuarios")
-    cult, tipos, reglas, salida = repo.col("cultivos"), repo.col("tipos_sensor"), repo.col("reglas"), []
+    cult, tipos, reglas, mantenciones, salida = repo.col("cultivos"), repo.col("tipos_sensor"), repo.col("reglas"), repo.col("mantenciones"), []
     for a in _fresco("alertas", lambda: modulo_alertas.ultimas(500)):
         if (vis is not None and a["instalacion_id"] not in vis) or (iid and a["instalacion_id"] != iid):
             continue
@@ -196,6 +197,9 @@ def _lista_alertas(usuario, iid=None, estado=None, limite=100):
             "verificacion_por": usr.get(a.get("verificacion_por"), {}).get("nombre"), "verificacion_en": iso(a.get("verificacion_en")),
             "verificacion_nota": a.get("verificacion_nota"), "verificacion_aprobada": a.get("verificacion_aprobada"),
             "resuelta_auto": bool(a.get("resuelta_auto")), "sensor_id": a.get("sensor_id"),
+            "solucion_cuestionada": bool(a.get("solucion_cuestionada")), "requiere_tecnico": bool(a.get("requiere_tecnico")) and a["estado"] != "resuelta",
+            "espera_medicion_hasta": iso(a.get("espera_medicion_hasta")) if a.get("estado") == "revisada" else None,
+            "mantencion": mantencion_publica({**mantenciones[a["mantencion_id"]], "id": a["mantencion_id"]}, usr) if a.get("mantencion_id") in mantenciones else None,
             "unidad": tipos.get(sens.get(a.get("sensor_id"), {}).get("tipo_sensor_id"), {}).get("unidad"),
             "regla": ({"operador": regla["operador"], "umbral": regla["umbral"], "nombre": regla.get("nombre")}
                       if (regla := reglas.get(a.get("regla_id"))) else None),
@@ -261,6 +265,9 @@ def revisar_alerta(request, pk):
     - Supervisor o administrador (cubren al encargado): quien revisa es también quien da por solucionado, porque no hay nadie por
       encima que lo apruebe; si lo da por solucionado la alerta queda resuelta directamente y la bitácora guarda quién lo hizo.
       Si no se pudo solucionar, queda registrado y la alerta sigue abierta (el propio revisor la rechaza).
+    LA MEDICIÓN TIENE LA ÚLTIMA PALABRA: si al informar «solucionado» el dato real sigue mal (el dispositivo no se comunica o el valor
+    sigue fuera de la regla), la alerta queda «revisada, esperando la medición» por unos minutos. Si en ese plazo el dato se normaliza,
+    se resuelve sola; si no, la solución queda cuestionada y se deriva (ver `monitor.revisar_soluciones`).
     Si el valor vuelve a la normalidad antes de que alguien la revise, la alerta se resuelve sola (ver `alertas.normalizar`)."""
     d = validar(request.cuerpo, {"solucionado": Campo(booleano), "nota": Campo(texto(5, 500))})
     a = rtdb().get(f"alertas/{pk}")
@@ -272,15 +279,24 @@ def revisar_alerta(request, pk):
         raise invalido("Solo se puede registrar la revisión de una alerta reconocida (primero hay que avisar que se va a revisar).")
     ahora = ahora_ms()
     cambios = {"revision_por": request.usuario["id"], "revision_en": ahora, "revision_nota": d["nota"], "revision_solucionado": d["solucionado"]}
-    directa = d["solucionado"] and request.usuario["rol"] in ("supervisor", "administrador")
+    presente, detalle = causa_presente(a) if d["solucionado"] else (False, "")
+    directa = d["solucionado"] and not presente and request.usuario["rol"] in ("supervisor", "administrador")
     if directa:                                              # supervisor o administrador: nadie más debe confirmarlo
         cambios.update(estado="resuelta", resuelta_en=ahora, verificacion_por=request.usuario["id"], verificacion_en=ahora,
                        verificacion_aprobada=True,
                        verificacion_nota=f"Resuelta directamente por el {'administrador' if request.usuario['rol'] == 'administrador' else 'supervisor'}.")
     elif d["solucionado"]:
-        cambios["estado"] = "revisada"                       # falta la constatación de otra persona
+        cambios["estado"] = "revisada"                       # falta la constatación de otra persona o de la medición
+        if presente:
+            cambios["espera_medicion_hasta"] = ahora + modulo_alertas.GRACIA_MEDICION_MS
+    if directa or not d["solucionado"]:
+        cambios["espera_medicion_hasta"] = None
     mapa = {f"alertas/{pk}/{k}": v for k, v in cambios.items()}
     _bitacora(mapa, pk, request.usuario, "resolvió" if directa else "dio solución" if d["solucionado"] else "no pudo solucionar", d["nota"])
+    if d["solucionado"] and presente:
+        modulo_alertas.bitacora_sistema(mapa, pk, "esperando la medición",
+                                        f"Todavía {detalle}. Si en {modulo_alertas.GRACIA_MEDICION_MS // 60000} minutos la medición no lo refleja, "
+                                        "la solución quedará cuestionada.")
     try:
         if directa:
             modulo_alertas.cerrar(pk, mapa)
@@ -350,12 +366,20 @@ def verificar_alerta(request, pk):
         cambios.update(estado="resuelta", resuelta_en=ahora)
     else:
         cambios["estado"] = "reconocida"                     # vuelve a revisión
+        cambios["espera_medicion_hasta"] = None
     mapa = {f"alertas/{pk}/{k}": v for k, v in cambios.items()}
     _bitacora(mapa, pk, request.usuario, ("confirmó su propia solución" if autoconfirma else "confirmó la solución") if d["aprobada"]
               else ("rechazó su propia solución" if autoconfirma else "rechazó la solución"), nota)
+    cuestionada = None
     try:
         if d["aprobada"]:
             modulo_alertas.cerrar(pk, mapa)
+        elif a.get("revision_por") and a.get("revision_por") != request.usuario["id"]:       # otra persona dijo «solucionado» y no era cierto
+            nombre = repo.col("usuarios").get(a["revision_por"], {}).get("nombre", "Quien revisó")
+            tecnico = a.get("tipo") == "sin_comunicacion" or bool(a.get("cuestionadas"))
+            cuestionada = f"{nombre} informó que quedó solucionado, pero {request.usuario['nombre']} lo rechazó: {nota}"
+            modulo_alertas.cuestionar(pk, a["revision_por"], cuestionada, mapa, requiere_tecnico=tecnico)
+            notificaciones.por_cuestionada(pk, a, cuestionada, tecnico, mapa)
         notificaciones.por_verificacion(pk, a, request.usuario, d["aprobada"], nota, mapa)
         rtdb().update(mapa)
     except Exception:
@@ -366,6 +390,9 @@ def verificar_alerta(request, pk):
     invalidar_micro()
     seguridad.registrar_auditoria(usuario_id=request.usuario["id"], accion="alerta_verificada" if d["aprobada"] else "alerta_rechazada",
                                   entidad="alerta", entidad_id=pk, ip=ip_cliente(request), detalle={"nota": nota, "autoconfirmada": autoconfirma})
+    if cuestionada:
+        seguridad.registrar_auditoria(usuario_id=request.usuario["id"], accion="solucion_cuestionada", entidad="alerta", entidad_id=pk,
+                                      ip=ip_cliente(request), detalle={"persona": a.get("revision_por"), "motivo": cuestionada})
     return sin_contenido()
 
 

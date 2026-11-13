@@ -107,3 +107,14 @@ input.corto { width:7rem; padding:.5rem .6rem; }
 .g-marca { stroke:#8a97a0; stroke-width:1.2; stroke-dasharray:2 3; vector-effect:non-scaling-stroke; } .g-marca.mal { stroke:#c62828; } .g-marca.bien { stroke:#1b8a4b; }
 .g-marca-t { font-size:10px; fill:#5b6b75; font-weight:700; } .g-marca-t.mal { fill:#c62828; } .g-marca-t.bien { fill:#1b8a4b; }
 .paso-cab { flex-wrap:wrap; } .paso-hora { flex-basis:100%; margin-left:1.65rem; } .tarjeta.alerta .pasos { margin:.6rem 0; }
+
+/* ---- solución cuestionada, derivación y mantenciones ---- */
+.paso.espera { --c:#7a5af8; --f:#f3f0ff; } .paso.tec { --c:#00838f; --f:#e8f6f7; } .sin-sangria { margin-left:0; }
+.banner-alerta { border-radius:8px; padding:.5rem .7rem; margin:.4rem 0; font-size:.88rem; border-left:4px solid; } .banner-alerta.mal { background:#fdf0f0; border-color:#c62828; } .banner-alerta.tec { background:#e8f6f7; border-color:#00838f; }
+.mantencion { background:#e8f6f7; border:1px solid #b7dfe3; border-left:4px solid #00838f; border-radius:8px; padding:.55rem .7rem; margin:.4rem 0; display:grid; gap:.35rem; }
+.mantencion.completada { background:#eef8f1; border-color:#bfe3cb; border-left-color:#1b8a4b; } .mantencion.cancelada { background:#f5f7f8; border-color:#dde3e7; border-left-color:#8a97a0; }
+.mantencion-cab { display:flex; justify-content:space-between; gap:.5rem; align-items:center; } .mantencion input,.mantencion textarea,.derivar-form input,.derivar-form select,.derivar-form textarea { width:100%; box-sizing:border-box; }
+.derivar { margin-top:.5rem; } .derivar-form { display:grid; gap:.45rem; background:#f5f7f8; border:1px solid #dde3e7; border-radius:8px; padding:.6rem .7rem; }
+.boton-tec { background:#00838f !important; color:#fff !important; border-color:#00838f !important; }
+.etiqueta.cuestionada,.chip.cuestionada { background:#fdeaea; color:#a11d1d; } .etiqueta.m-pendiente,.chip.m-pendiente { background:#fff1d6; color:#8a5a00; } .etiqueta.m-en_curso,.chip.m-en_curso { background:#e1ecfb; color:#1565c0; }
+.etiqueta.m-completada,.chip.m-completada { background:#e3f3e8; color:#1b6e3d; } .etiqueta.m-cancelada,.chip.m-cancelada { background:#eceff1; color:#5b6b75; }

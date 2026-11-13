@@ -113,3 +113,37 @@ th { background:#f3f7f9; font-size:.78rem; text-transform:uppercase; letter-spac
 .sub-graficos { margin:1rem 0 .5rem; font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--suave); }
 .graf-sensor h5 { margin:0 0 .4rem; font-size:.95rem; } .graf-sensor h5 small { font-weight:400; color:var(--suave); } .rejilla-graficos section.con-alerta { border-color:var(--crit); }
 @media (max-width:820px) { .alerta-web-cuerpo { grid-template-columns:1fr; } .rejilla-graficos { grid-template-columns:1fr; } }
+
+/* ---- solución cuestionada, derivación y mantenciones ---- */
+.paso.espera { --c:#7a5af8; --f:#f3f0ff; } .paso.tec { --c:#00838f; --f:#e8f6f7; } .sin-sangria { margin-left:0; }
+.banner-alerta { border-radius:8px; padding:.5rem .7rem; margin:.4rem 0; font-size:.88rem; border-left:4px solid; } .banner-alerta.mal { background:#fdf0f0; border-color:#c62828; } .banner-alerta.tec { background:#e8f6f7; border-color:#00838f; }
+.mantencion { background:#e8f6f7; border:1px solid #b7dfe3; border-left:4px solid #00838f; border-radius:8px; padding:.55rem .7rem; margin:.4rem 0; display:grid; gap:.35rem; }
+.mantencion.completada { background:#eef8f1; border-color:#bfe3cb; border-left-color:#1b8a4b; } .mantencion.cancelada { background:#f5f7f8; border-color:#dde3e7; border-left-color:#8a97a0; }
+.mantencion-cab { display:flex; justify-content:space-between; gap:.5rem; align-items:center; } .mantencion input,.mantencion textarea,.derivar-form input,.derivar-form select,.derivar-form textarea { width:100%; box-sizing:border-box; }
+.derivar { margin-top:.5rem; } .derivar-form { display:grid; gap:.45rem; background:#f5f7f8; border:1px solid #dde3e7; border-radius:8px; padding:.6rem .7rem; }
+.boton-tec { background:#00838f !important; color:#fff !important; border-color:#00838f !important; }
+.etiqueta.cuestionada,.chip.cuestionada { background:#fdeaea; color:#a11d1d; } .etiqueta.m-pendiente,.chip.m-pendiente { background:#fff1d6; color:#8a5a00; } .etiqueta.m-en_curso,.chip.m-en_curso { background:#e1ecfb; color:#1565c0; }
+.etiqueta.m-completada,.chip.m-completada { background:#e3f3e8; color:#1b6e3d; } .etiqueta.m-cancelada,.chip.m-cancelada { background:#eceff1; color:#5b6b75; }
+
+/* ---- panel y contenido a todo el ancho ---- */
+.contenido { max-width:none !important; }
+.cultivos { grid-template-columns:repeat(auto-fill,minmax(235px,1fr)) !important; } .cultivos .lecturas { grid-template-columns:repeat(auto-fill,minmax(98px,1fr)); }
+.pestanas { row-gap:0; } .pestanas a { padding:.5rem .75rem; font-size:.92rem; }
+/* ---- sensores ---- */
+.panel-form.ancho { max-width:none; } .tipos-lista { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:.4rem; } .tipo-op { border:1px solid var(--borde); border-radius:8px; padding:.45rem .6rem; background:#fff; }
+.tipo-op.sel { border-color:var(--marca); background:#eef8f1; } .tipos-filas { margin-top:.6rem; } .tipos-filas input { width:100%; box-sizing:border-box; }
+.filtro-sensores { max-width:420px; margin:.3rem 0 .6rem; } .chip-var { display:inline-block; background:#eef3f6; border-radius:999px; padding:.05rem .5rem; margin:0 .2rem .2rem 0; font-size:.78rem; }
+/* ---- informes: a todo el ancho, en tarjetas numeradas ---- */
+.informe { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:1rem; max-width:none; }
+.informe > .ayuda { grid-column:1 / -1; margin:0; } .informe .card-informe { grid-column:1 / -1; } .zona-op { display:contents; }
+.informe .card-informe.periodo { grid-column:span 5; } .informe .card-informe.filtros { grid-column:span 7; }
+.card-informe { background:var(--panel); border:1px solid var(--borde); border-radius:12px; padding:.9rem 1rem; } .card-informe h4 { margin:0 0 .6rem; font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; color:var(--suave); }
+.informe-grid-2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:1rem; }
+.rejilla-campos { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.8rem; align-items:start; } .rapidos { display:flex; flex-wrap:wrap; gap:.2rem .6rem; margin-top:.5rem; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:.6rem; } .tile { text-align:left; display:grid; gap:.2rem; background:#fff; border:2px solid var(--borde); border-radius:10px; padding:.65rem .8rem; cursor:pointer; font:inherit; color:inherit; }
+.tile span { font-size:.82rem; color:var(--suave); } .tile:hover { border-color:#9fc9b6; } .tile.sel { border-color:var(--marca); background:#eef8f1; }
+.barra-descarga { grid-column:1 / -1; position:sticky; bottom:0; display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; background:#ffffffee; backdrop-filter:blur(4px); border:1px solid var(--borde); border-radius:12px; padding:.7rem 1rem; }
+.barra-pct { position:relative; display:inline-flex; align-items:center; width:110px; height:1.3rem; background:#eceff1; border-radius:999px; overflow:hidden; vertical-align:middle; }
+.barra-pct .relleno { position:absolute; inset:0 auto 0 0; border-radius:999px; } .relleno.alto { background:#9ad7b1; } .relleno.medio { background:#f2d58a; } .relleno.bajo { background:#f1a9a9; }
+.barra-pct b { position:relative; margin:0 auto; font-size:.8rem; } .lista-mantenciones { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:1rem; }
+@media (max-width:980px) { .informe .card-informe.periodo,.informe .card-informe.filtros { grid-column:1 / -1; } }

@@ -101,7 +101,9 @@ class AlertasYAvisosTests(MejorasBase):
         # el propio administrador decide: «no pude solucionarlo» deja la alerta abierta ...
         self.assertEqual(self.post(adm, csrf_a, f"/api/alertas/{aid}/revisar", {"solucionado": False, "nota": "Falta probar de nuevo"}).status_code, 204)
         self.assertEqual(rtdb().get(f"alertas/{aid}/estado"), "reconocida")
-        # ... y «quedó solucionado» la resuelve sin pedir la confirmación de nadie más
+        # ... y «quedó solucionado» la resuelve sin pedir la confirmación de nadie más, siempre que la medición no lo contradiga
+        sid = rtdb().get(f"alertas/{aid}/sensor_id")
+        rtdb().update({f"ultima/{sid}/valor": 2.0})                                  # el dato real ya está normal (sin pasar por la ingesta)
         self.assertEqual(self.post(adm, csrf_a, f"/api/alertas/{aid}/revisar", {"solucionado": True, "nota": "Ahora sí quedó"}).status_code, 204)
         a = rtdb().get(f"alertas/{aid}")
         self.assertEqual(a["estado"], "resuelta")
@@ -138,13 +140,50 @@ class InformesTests(MejorasBase):
         self.assertIn("spreadsheetml", r["Content-Type"])
         self.assertIn("attachment", r["Content-Disposition"])
         wb = load_workbook(io.BytesIO(r.content))
-        self.assertEqual(wb.sheetnames, ["Resumen", "Mediciones", "Alertas", "Eventos"])
+        self.assertEqual(wb.sheetnames, ["Resumen", "Mediciones", "Alertas", "Eventos", "Trabajadores", "Detalle de gestión", "Mantenciones"])
         filas = list(wb["Mediciones"].iter_rows(values_only=True))
         self.assertEqual(filas[0][:3], ("Fecha y hora", "Instalación", "Cultivo"))
         self.assertGreater(len(filas), 100)
         al = list(wb["Alertas"].iter_rows(values_only=True))
         self.assertEqual(al[0][1], "Estado")
         self.assertTrue(any("PENDIENTE" in str(f[-1]) for f in al[1:]))
+
+    def test_informe_grande_se_agrupa_solo_en_vez_de_fallar(self):
+        from unittest.mock import patch
+        from openpyxl import load_workbook
+        from urllib.parse import unquote
+        from core import informes
+        adm, _ = self.entrar("administrador")
+        cid = self.cultivo_id(adm, "Tomate cherry")
+        with patch.dict(informes.TOPE_FILAS, {"xlsx": 40, "csv": 40}):
+            r = adm.get("/api/informes", {"agregacion": "crudo", "tipo": "mediciones", "cultivo_id": cid})
+        self.assertEqual(r.status_code, 200, r.content)                      # antes: 413 «supera las filas permitidas»
+        self.assertIn("se agruparon", unquote(r["X-Informe-Aviso"]))
+        wb = load_workbook(io.BytesIO(r.content))
+        self.assertEqual(next(wb["Mediciones"].iter_rows(values_only=True))[0], "Inicio del tramo")
+        self.assertTrue(any("Nota" == c.value for c in wb["Resumen"]["A"]))
+
+    def test_informe_de_trabajadores(self):
+        from openpyxl import load_workbook
+        self.enviar([self.med("CAU1", "caudal", 0.5, "L/min")])
+        adm, csrf_a = self.entrar("administrador")
+        enc, csrf_e = self.entrar("encargado_cultivo")
+        aid = adm.get("/api/alertas").json()[0]["id"]
+        self.post(enc, csrf_e, f"/api/alertas/{aid}/reconocer")
+        self.post(enc, csrf_e, f"/api/alertas/{aid}/revisar", {"solucionado": True, "nota": "Se limpió el filtro"})
+        self.enviar([self.med("CAU1", "caudal", 2.0, "L/min")])                # la medición lo respalda: queda resuelta
+        j = adm.get("/api/informes/trabajadores").json()
+        e = next(p for p in j["personas"] if p["rol"] == "encargado_cultivo")
+        self.assertEqual((e["reconocidas"], e["soluciones"], e["efectivas"], e["cuestionadas"], e["efectividad"]), (1, 1, 1, 0, 100.0))
+        self.assertEqual(e["cumplimiento"], 100.0)
+        r = adm.get("/api/informes", {"tipo": "trabajadores"})
+        self.assertEqual(r.status_code, 200, r.content)
+        wb = load_workbook(io.BytesIO(r.content))
+        self.assertEqual(wb.sheetnames, ["Resumen", "Trabajadores", "Detalle de gestión", "Mantenciones"])
+        det = list(wb["Detalle de gestión"].iter_rows(values_only=True))
+        self.assertTrue(any(f[6] == "dio solución" and str(f[8]).startswith("Efectiva") for f in det[1:]))
+        self.assertEqual(adm.get("/api/informes", {"tipo": "trabajadores", "formato": "csv"}).status_code, 200)
+        self.assertEqual(enc.get("/api/informes/trabajadores").status_code, 403)
 
     def test_filtros_y_csv(self):
         adm, _ = self.entrar("administrador")

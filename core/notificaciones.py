@@ -115,6 +115,21 @@ def por_verificacion(aid, alerta, usuario, aprobada, nota, mapa):
              aid, iid, critica=not aprobada)
 
 
+def por_cuestionada(aid, alerta, motivo, requiere_tecnico, mapa):
+    """La medición no respalda la solución informada: se avisa a quien corresponde, con la recomendación de derivar a un técnico."""
+    iid = alerta.get("instalacion_id", "")
+    uids = _destinatarios(iid, encargados=True, supervisores=True, administradores=True)
+    msg = f"{motivo}" + (" Se recomienda derivar a un técnico o programar una mantención." if requiere_tecnico else "")
+    _agregar(mapa, uids, "solucion_cuestionada", "Solución no confirmada por la medición", f"{_contexto(alerta)} — {msg}".strip(" —"), aid, iid, critica=True)
+
+
+def por_derivacion(aid, alerta, usuario, tipo_texto, nota, mapa):
+    iid = alerta.get("instalacion_id", "")
+    uids = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=usuario["id"])
+    _agregar(mapa, uids, "alerta_derivada", "Derivada a técnico / mantención",
+             f"{_contexto(alerta)} — {_quien(usuario)} derivó la alerta: {tipo_texto}. {nota}".strip(" —"), aid, iid, critica=False)
+
+
 # ------------------------------------------------------------------ lectura (API)
 def listar(uid, limite=40):
     filas = rtdb().rango(f"notificaciones/{uid}", ultimos=limite)

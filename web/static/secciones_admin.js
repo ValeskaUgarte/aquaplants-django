@@ -74,9 +74,11 @@ async function secCultivos(z) {
 }
 
 /* ---------------- Dispositivos y sensores ---------------- */
+let _mensajeSensores = null, _filtroSensores = '';     // el mensaje de «sensores creados» y el cultivo mostrado sobreviven a la recarga de la pantalla
 async function secDispositivos(z) {
   const m = marco(z), [insts, disp, sens, tipos, cultivos] = await Promise.all([api.get('/instalaciones'), api.get('/dispositivos'), api.get('/sensores'), api.get('/tipos-sensor'), api.get('/cultivos')]);
   const recargar = () => secDispositivos(z), secretoZona = el('div', {});
+  if (_mensajeSensores) { vaciar(m.msg).append(..._mensajeSensores); _mensajeSensores = null; }
   const mostrarSecreto = (s) => vaciar(secretoZona).append(el('div', { class: 'aviso aviso-warn', role: 'alert' }, el('strong', {}, 'Secreto del dispositivo (se muestra una sola vez): '), el('code', { class: 'secreto' }, s), ' ',
     botonTexto('Ya lo guardé', () => vaciar(secretoZona))));
   const libres = cultivos.filter((c) => !disp.some((d) => d.cultivo_id === c.id));
@@ -84,23 +86,64 @@ async function secDispositivos(z) {
     { nombre: 'cultivo_id', etiqueta: 'Cultivo que monitorea (solo cultivos sin dispositivo)', tipo: 'select', requerido: true, opciones: libres.map((c) => ({ valor: c.id, texto: `${c.nombre} — ${nombreDe(insts, c.instalacion_id)}` })) },
     { nombre: 'codigo', etiqueta: 'Código (id_dispositivo)', tipo: 'text', requerido: true }, { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true }],
     onEnviar: async (d) => { const c = cultivos.find((x) => x.id === d.cultivo_id); const r = await api.post('/dispositivos', { ...d, instalacion_id: c.instalacion_id }); await recargar(); mostrarSecreto(r.secreto); } }));
-  const nuevoS = () => m.mostrarForm(formulario({ textoBoton: 'Crear sensor', onCancelar: m.cerrarForm, campos: [
-    { nombre: 'dispositivo_id', etiqueta: 'Dispositivo (el sensor mide el cultivo de su dispositivo)', tipo: 'select', requerido: true, opciones: disp.map((d) => ({ valor: d.id, texto: `${d.codigo} — ${d.cultivo_nombre || 'sin cultivo'}` })) },
-    { nombre: 'tipo_sensor_id', etiqueta: 'Tipo de sensor', tipo: 'select', requerido: true, opciones: tipos.map((t) => ({ valor: t.id, texto: `${t.nombre} (${t.unidad})` })) },
-    { nombre: 'codigo', etiqueta: 'Código (id_sensor)', tipo: 'text', requerido: true }, { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true }],
-    onEnviar: async (d) => { await api.post('/sensores', d); await recargar(); } }));
+  const nuevoS = () => {
+    const elegidos = new Map(), err = el('div', {});                          // tipo_sensor_id -> { codigo, nombre }
+    const zonaTipos = el('div', { class: 'tipos-lista' }), zonaFilas = el('div', { class: 'tipos-filas' });
+    let dispId = _filtroSensores && disp.some((d) => d.id === _filtroSensores) ? _filtroSensores : '';
+    const sugerir = (t) => {                                                    // código sugerido: 3 letras del tipo + número libre en ese dispositivo
+      const usados = new Set([...sens.filter((s) => s.dispositivo_id === dispId).map((s) => s.codigo), ...[...elegidos.values()].map((v) => v.codigo)]);
+      const base = (t.tipo_variable || t.nombre).normalize('NFD').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'SEN';
+      let n = 1; while (usados.has(base + n)) n++; return base + n;
+    };
+    const pintar = () => {
+      const yaTiene = (t) => sens.filter((s) => s.dispositivo_id === dispId && s.tipo_sensor_id === t.id).length;
+      vaciar(zonaTipos).append(dispId ? tipos.map((t) => el('label', { class: `campo-check tipo-op ${elegidos.has(t.id) ? 'sel' : ''}` },
+        el('input', { type: 'checkbox', checked: elegidos.has(t.id), onchange: (e) => { if (e.target.checked) elegidos.set(t.id, { codigo: sugerir(t), nombre: t.nombre }); else elegidos.delete(t.id); pintar(); } }),
+        el('span', {}, el('strong', {}, t.nombre), ` (${t.unidad})`, yaTiene(t) ? el('small', { class: 'suave' }, ` · ya tiene ${yaTiene(t)}`) : null))) : el('p', { class: 'suave' }, 'Primero elige el cultivo.'));
+      vaciar(zonaFilas).append(elegidos.size ? el('div', { class: 'tabla' }, el('table', {}, el('thead', {}, el('tr', {}, ['Variable', 'Código (id_sensor)', 'Nombre'].map((h) => el('th', {}, h)))),
+        el('tbody', {}, [...elegidos].map(([id, v]) => { const t = tipos.find((x) => x.id === id); return el('tr', {}, el('td', {}, `${t.nombre} (${t.unidad})`),
+          el('td', {}, el('input', { type: 'text', required: true, maxlength: 40, value: v.codigo, oninput: (e) => { v.codigo = e.target.value.trim(); } })),
+          el('td', {}, el('input', { type: 'text', required: true, maxlength: 120, value: v.nombre, oninput: (e) => { v.nombre = e.target.value; } }))); })))) : null);
+    };
+    const dispSel = el('select', { required: true, onchange: (e) => { dispId = e.target.value; elegidos.clear(); pintar(); } }, el('option', { value: '' }, 'Selecciona un cultivo…'),
+      disp.map((d) => el('option', { value: d.id, selected: d.id === dispId }, `${d.cultivo_nombre || 'Sin cultivo'} — ${nombreDe(insts, d.instalacion_id)} · ${d.codigo}`)));
+    const enviar = el('button', { class: 'boton', type: 'submit' }, 'Crear sensores');
+    const form = el('form', { class: 'panel-form ancho' }, err, el('h4', {}, 'Nuevos sensores'),
+      el('label', { class: 'campo' }, el('span', {}, 'Cultivo (el sensor mide el cultivo de su dispositivo)'), dispSel),
+      el('div', { class: 'campo' }, el('span', {}, 'Variables que mide (marca todas las que necesites)'), zonaTipos), zonaFilas,
+      el('div', { class: 'acciones' }, enviar, el('button', { type: 'button', class: 'boton-secundario', onclick: m.cerrarForm }, 'Cancelar')));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault(); vaciar(err);
+      if (!dispId || !elegidos.size) { err.append(aviso('error', 'Elige el cultivo y marca al menos una variable.')); return; }
+      enviar.disabled = true; enviar.textContent = 'Creando…';
+      const hechos = [], fallos = [];
+      for (const [tid, v] of elegidos) {                                        // uno por uno: si uno falla, los demás igual se crean y se dice cuál
+        try { await api.post('/sensores', { dispositivo_id: dispId, tipo_sensor_id: tid, codigo: v.codigo, nombre: v.nombre || v.codigo }); hechos.push(v.codigo); }
+        catch (e) { fallos.push(`${v.codigo}: ${mensajeError(e)}`); }
+      }
+      const d = disp.find((x) => x.id === dispId), donde = `${d.cultivo_nombre || 'el cultivo'} (${d.codigo})`;
+      if (!fallos.length) { _filtroSensores = dispId; _mensajeSensores = [aviso('ok', `Se ${hechos.length === 1 ? 'creó 1 sensor' : `crearon ${hechos.length} sensores`} en ${donde}: ${hechos.join(', ')}. Ya figuran en la tabla «Sensores» de abajo.`)]; await recargar(); return; }
+      if (hechos.length) { _filtroSensores = dispId; _mensajeSensores = [aviso('ok', `Se crearon en ${donde}: ${hechos.join(', ')}.`), aviso('error', `No se pudieron crear: ${fallos.join(' · ')}`)]; await recargar(); return; }
+      err.append(aviso('error', `No se creó ningún sensor. ${fallos.join(' · ')}`)); enviar.disabled = false; enviar.textContent = 'Crear sensores';
+    });
+    pintar(); m.mostrarForm(form);
+  };
   m.cuerpo.append(secretoZona, el('p', { class: 'ayuda' }, 'Regla del proyecto: un dispositivo por cultivo. Los sensores de un dispositivo miden el cultivo al que pertenece.'),
     el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevoD, disabled: !libres.length, title: libres.length ? '' : 'Todos los cultivos ya tienen dispositivo' }, 'Nuevo dispositivo'),
-      el('button', { class: 'boton-secundario', type: 'button', onclick: nuevoS, disabled: !disp.length }, 'Nuevo sensor')),
+      el('button', { class: 'boton-secundario', type: 'button', onclick: nuevoS, disabled: !disp.length }, 'Nuevo sensor (varias variables a la vez)')),
     el('h3', {}, 'Dispositivos'),
     tabla([{ titulo: 'Cultivo', ver: (f) => el('strong', {}, f.cultivo_nombre || '—') }, { titulo: 'Dispositivo', ver: (f) => `${f.codigo} · ${f.nombre}` }, { titulo: 'Instalación', ver: (f) => nombreDe(insts, f.instalacion_id) },
+      { titulo: 'Sensores', ver: (f) => { const l = sens.filter((s) => s.dispositivo_id === f.id); return l.length ? l.map((s) => el('span', { class: 'chip-var', title: s.nombre }, s.tipo_nombre)) : el('span', { class: 'suave' }, 'ninguno'); } },
       { titulo: 'Conexión', ver: (f) => estado(f.estado_conexion) }, { titulo: 'Última comunicación', ver: (f) => fechaHora(f.ultima_comunicacion) }, { titulo: 'Activo', ver: (f) => (f.activo ? 'Sí' : 'No') },
       { titulo: 'Acciones', ver: (f) => el('span', { class: 'acciones' }, botonTexto(f.activo ? 'Desactivar' : 'Activar', accion(m, () => api.patch(`/dispositivos/${f.id}`, { activo: !f.activo }), 'Dispositivo actualizado.', recargar)),
         botonTexto('Rotar secreto', async () => { if (confirm('El secreto anterior dejará de funcionar. ¿Continuar?')) { try { const r = await api.post(`/dispositivos/${f.id}/rotar-secreto`); mostrarSecreto(r.secreto); } catch (e) { m.mal(e); } } })) }], disp),
-    el('h3', {}, 'Sensores'),
+    el('h3', { id: 'tabla-sensores' }, `Sensores (${sens.length})`),
+    el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar los sensores de'), el('select', { onchange: (e) => { _filtroSensores = e.target.value; recargar(); } }, el('option', { value: '' }, 'Todos los cultivos'),
+      disp.map((d) => el('option', { value: d.id, selected: d.id === _filtroSensores }, `${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo}`)))),
     tabla([{ titulo: 'Cultivo', ver: (f) => f.cultivo_nombre || '—' }, { titulo: 'Dispositivo', campo: 'dispositivo_codigo' }, { titulo: 'Sensor', ver: (f) => `${f.codigo} · ${f.nombre}` }, { titulo: 'Variable', campo: 'tipo_nombre' },
       { titulo: 'Unidad', campo: 'unidad' }, { titulo: 'Activo', ver: (f) => (f.activo ? 'Sí' : 'No') },
-      { titulo: '', ver: (f) => botonTexto(f.activo ? 'Desactivar' : 'Activar', accion(m, () => api.patch(`/sensores/${f.id}`, { activo: !f.activo }), 'Sensor actualizado.', recargar)) }], sens));
+      { titulo: '', ver: (f) => botonTexto(f.activo ? 'Desactivar' : 'Activar', accion(m, () => api.patch(`/sensores/${f.id}`, { activo: !f.activo }), 'Sensor actualizado.', recargar)) }],
+      sens.filter((s) => !_filtroSensores || s.dispositivo_id === _filtroSensores), 'Este cultivo aún no tiene sensores: usa «Nuevo sensor».'));
 }
 
 /* ---------------- Tipos de sensor ---------------- */
@@ -218,40 +261,88 @@ async function vSeguimiento() { const z = contenido.firstChild; vaciar(z).append
 
 /* ---------------- Informes (administrador) ---------------- */
 const fechaLocal = (dias = 0) => { const d = new Date(Date.now() + dias * 86400000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const fmtMin = (v) => (v == null ? '—' : v < 1 ? '< 1 min' : v < 60 ? `${fmt(v, 0)} min` : `${Math.floor(v / 60)} h ${Math.round(v % 60)} min`);
+const barraPct = (v) => (v == null ? el('span', { class: 'suave' }, '—') : el('span', { class: 'barra-pct', title: `${fmt(v, 1)} %` },
+  el('span', { class: `relleno ${v >= 80 ? 'alto' : v >= 50 ? 'medio' : 'bajo'}`, style: `width:${Math.max(2, Math.min(100, v))}%` }), el('b', {}, `${fmt(v, 0)} %`)));
+const CONTENIDOS = [['completo', 'Informe completo', 'Excel con todas las hojas: mediciones, alertas, eventos y trabajadores.'], ['mediciones', 'Mediciones', 'Historial de lo que midió cada sensor.'],
+  ['alertas', 'Alertas y su seguimiento', 'Quién atendió cada alerta y qué comentó.'], ['eventos', 'Eventos', 'Cortes de comunicación, reconexiones y datos rechazados.'],
+  ['resumen', 'Resumen por cultivo', 'Mínimo, promedio y máximo de cada sensor.'], ['trabajadores', 'Trabajadores', 'Qué hizo cada persona, su efectividad y las mantenciones.']];
+
 async function secInformes(z) {
   const m = marco(z), [insts, cultivos, tipos] = await Promise.all([api.get('/instalaciones'), api.get('/cultivos'), api.get('/tipos-sensor')]);
   const f = { tipo: 'completo', formato: 'xlsx', desde: fechaLocal(-7), hasta: fechaLocal(0), instalacion_id: '', cultivo_id: '', tipo_variable: '', agregacion: '1h', estado: '' };
+  const campo = (t, ent, ayuda) => el('label', { class: 'campo' }, el('span', {}, t), ent, ayuda ? el('small', { class: 'ayuda' }, ayuda) : null);
   const sel = (clave, opts, extra) => el('select', { onchange: (e) => { f[clave] = e.target.value; extra && extra(); } }, opts.map(([v, t]) => el('option', { value: v, selected: f[clave] === v }, t)));
   const selCultivo = el('select', { onchange: (e) => { f.cultivo_id = e.target.value; } });
   const pintarCultivos = () => { f.cultivo_id = ''; vaciar(selCultivo).append(el('option', { value: '' }, 'Todos'), cultivos.filter((c) => !f.instalacion_id || c.instalacion_id === f.instalacion_id).map((c) => el('option', { value: c.id }, `${c.nombre} (${nombreDe(insts, c.instalacion_id)})`))); };
   pintarCultivos();
-  const campo = (t, ent, ayuda) => el('label', { class: 'campo' }, el('span', {}, t), ent, ayuda ? el('small', { class: 'ayuda' }, ayuda) : null);
+  const inDesde = el('input', { type: 'date', value: f.desde, required: true, oninput: (e) => { f.desde = e.target.value; } });
+  const inHasta = el('input', { type: 'date', value: f.hasta, required: true, oninput: (e) => { f.hasta = e.target.value; } });
+  const rango = (d, h) => { f.desde = inDesde.value = d; f.hasta = inHasta.value = h; };
+  const hoy = new Date(), pad = (n) => String(n).padStart(2, '0'), ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const rapidos = [['Hoy', () => rango(fechaLocal(0), fechaLocal(0))], ['7 días', () => rango(fechaLocal(-7), fechaLocal(0))], ['30 días', () => rango(fechaLocal(-30), fechaLocal(0))],
+    ['Este mes', () => rango(ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 1)), fechaLocal(0))], ['Mes anterior', () => rango(ymd(new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)), ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 0)))]];
+  const tarjetas = el('div', { class: 'tiles', role: 'radiogroup', 'aria-label': 'Contenido del informe' });
+  const zonaOpciones = el('div', { class: 'zona-op' }), previa = el('div', {});
+  const pintarTarjetas = () => vaciar(tarjetas).append(CONTENIDOS.map(([v, t, d]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(f.tipo === v), class: `tile ${f.tipo === v ? 'sel' : ''}`,
+    onclick: () => { f.tipo = v; pintarTarjetas(); pintarOpciones(); } }, el('strong', {}, t), el('span', {}, d))));
+  const pintarOpciones = () => {
+    const medidas = ['completo', 'mediciones', 'resumen'].includes(f.tipo), alertas = ['completo', 'alertas'].includes(f.tipo);
+    vaciar(zonaOpciones).append(
+      el('div', { class: 'card-informe filtros' }, el('h4', {}, '3 · Filtros'), el('div', { class: 'rejilla-campos' },
+        campo('Instalación', sel('instalacion_id', [['', 'Todas'], ...insts.map((i) => [i.id, i.nombre])], pintarCultivos)), campo('Cultivo', selCultivo),
+        medidas ? campo('Variable', sel('tipo_variable', [['', 'Todas'], ...tipos.map((t) => [t.tipo_variable, t.nombre])])) : null,
+        alertas ? campo('Estado de las alertas', sel('estado', [['', 'Todas'], ['abiertas', 'Solo sin resolver'], ['resuelta', 'Solo resueltas'], ['activa', 'Activas'], ['reconocida', 'En revisión'], ['revisada', 'Falta confirmar']])) : null)),
+      el('div', { class: 'card-informe formato' }, el('h4', {}, '4 · Formato'), el('div', { class: 'rejilla-campos' },
+        campo('Archivo', sel('formato', [['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (para Excel en español)']]), f.tipo === 'completo' ? 'En CSV se entrega una sola tabla: el informe completo sale como mediciones.' : ''),
+        medidas && f.tipo !== 'resumen' ? campo('Detalle de las mediciones', sel('agregacion', [['1h', 'Promedio por hora'], ['15m', 'Cada 15 minutos'], ['5m', 'Cada 5 minutos'], ['1d', 'Promedio por día'], ['crudo', 'Cada medición (sin agrupar)']]),
+          'Si el rango es muy largo para ese detalle, el informe se agrupa solo (lo avisamos y queda anotado en el archivo): ya no falla.') : null)));
+  };
+  pintarTarjetas(); pintarOpciones();
   const boton = el('button', { class: 'boton', type: 'submit' }, 'Descargar informe');
-  const form = el('form', { class: 'panel-form' },
-    el('p', { class: 'ayuda' }, 'Genera un archivo con el historial por fecha, instalación, cultivo y sensor, y con el seguimiento de las alertas (quién las atendió y qué comentó). Las horas salen en hora de Santiago.'),
-    el('div', { class: 'rejilla-form' },
-      campo('Contenido', sel('tipo', [['completo', 'Informe completo (Excel con todas las hojas)'], ['mediciones', 'Solo mediciones (historial)'], ['alertas', 'Solo alertas y su seguimiento'], ['eventos', 'Solo eventos'], ['resumen', 'Solo resumen por cultivo']])),
-      campo('Formato', sel('formato', [['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (para Excel en español)']]), 'En CSV se descarga una sola tabla: el informe completo se entrega como mediciones.'),
-      campo('Desde', el('input', { type: 'date', value: f.desde, required: true, oninput: (e) => { f.desde = e.target.value; } })),
-      campo('Hasta (incluido)', el('input', { type: 'date', value: f.hasta, required: true, oninput: (e) => { f.hasta = e.target.value; } })),
-      campo('Instalación', sel('instalacion_id', [['', 'Todas'], ...insts.map((i) => [i.id, i.nombre])], pintarCultivos)),
-      campo('Cultivo', selCultivo),
-      campo('Variable', sel('tipo_variable', [['', 'Todas'], ...tipos.map((t) => [t.tipo_variable, t.nombre])])),
-      campo('Mediciones agrupadas', sel('agregacion', [['1h', 'Promedio por hora'], ['15m', 'Cada 15 minutos'], ['5m', 'Cada 5 minutos'], ['1d', 'Promedio por día'], ['crudo', 'Sin agrupar (cada medición)']]), 'Sin agrupar genera muchas filas: úsalo con rangos cortos.'),
-      campo('Estado de las alertas', sel('estado', [['', 'Todas'], ['abiertas', 'Solo sin resolver'], ['resuelta', 'Solo resueltas'], ['activa', 'Activas'], ['reconocida', 'En revisión'], ['revisada', 'Falta confirmar']]))),
-    el('div', { class: 'acciones' }, boton));
+  const verTrab = el('button', { class: 'boton-secundario', type: 'button' }, 'Ver desempeño en pantalla');
+  const form = el('form', { class: 'informe' },
+    el('p', { class: 'ayuda' }, 'Elige qué informe quieres, el período y los filtros. Las horas salen en hora de Santiago.'),
+    el('div', { class: 'card-informe' }, el('h4', {}, '1 · Qué informe necesitas'), tarjetas),
+    el('div', { class: 'card-informe periodo' }, el('h4', {}, '2 · Período'), el('div', { class: 'rejilla-campos' }, campo('Desde', inDesde), campo('Hasta (incluido)', inHasta)),
+      el('div', { class: 'rapidos' }, rapidos.map(([t, fn]) => el('button', { type: 'button', class: 'boton-texto', onclick: fn }, t)))),
+    zonaOpciones,
+    el('div', { class: 'barra-descarga' }, el('span', { class: 'suave' }, 'Tus filtros se aplican a todas las hojas del archivo.'), el('span', { class: 'acciones' }, verTrab, boton)));
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); boton.disabled = true; boton.textContent = 'Generando…'; vaciar(m.msg);
     try {
       const r = await fetch(`/api/informes${qs(f)}`, { credentials: 'same-origin' });
       if (!r.ok) { const d = await r.json().catch(() => null); throw new ErrorApi((d && d.error && d.error.mensaje) || `Error ${r.status}`); }
-      const blob = await r.blob(), mm = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '');
+      const blob = await r.blob(), mm = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || ''), nota = r.headers.get('X-Informe-Aviso');
       const a = el('a', { href: URL.createObjectURL(blob), download: mm ? mm[1] : `informe.${f.formato}` });
       document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 15000);
-      m.ok(`Informe descargado (${mm ? mm[1] : 'informe'}).`);
+      vaciar(m.msg).append(aviso('ok', `Informe descargado (${mm ? mm[1] : 'informe'}).`), nota ? aviso('warn', decodeURIComponent(nota)) : null);
     } catch (err) { m.mal(err); } finally { boton.disabled = false; boton.textContent = 'Descargar informe'; }
   });
-  m.cuerpo.append(form);
+  verTrab.addEventListener('click', async () => {
+    verTrab.disabled = true; vaciar(previa).append(el('p', { class: 'suave' }, 'Calculando…'));
+    try { vaciar(previa).append(tablaTrabajadores(await api.get(`/informes/trabajadores${qs(f)}`))); } catch (err) { vaciar(previa); m.mal(err); } finally { verTrab.disabled = false; }
+  });
+  m.cuerpo.append(form, previa);
+}
+
+/* Desempeño del personal en pantalla: atención, efectividad y mantenciones de cada persona. */
+function tablaTrabajadores(d) {
+  const cuestionadas = d.personas.reduce((s, p) => s + p.cuestionadas, 0);
+  return el('section', { class: 'card-informe' },
+    el('h4', {}, `Desempeño del personal · ${d.desde} al ${d.hasta}`),
+    el('p', { class: 'ayuda' }, 'Atención = alertas de sus instalaciones que la persona reconoció. Efectividad = soluciones informadas que se confirmaron ÷ (esas + las que la medición o el supervisor cuestionaron). '
+      + 'Con varios encargados en una instalación, la atención se reparte entre ellos.'),
+    el('div', { class: 'indicadores compactos' },
+      el('div', {}, el('dt', {}, 'Personas'), el('dd', {}, d.personas.length)), el('div', {}, el('dt', {}, 'Soluciones cuestionadas'), el('dd', {}, cuestionadas)),
+      el('div', {}, el('dt', {}, 'Mantenciones derivadas'), el('dd', {}, d.mantenciones)), el('div', {}, el('dt', {}, 'Mantenciones abiertas'), el('dd', {}, d.mantenciones_abiertas))),
+    tabla([{ titulo: 'Persona', ver: (p) => [el('strong', {}, p.nombre), el('div', { class: 'meta suave' }, p.rol_texto)] },
+      { titulo: 'Atención', ver: (p) => (p.cumplimiento == null ? el('span', { class: 'suave' }, `${p.reconocidas} reconocidas`) : [barraPct(p.cumplimiento), el('div', { class: 'meta suave' }, `${p.reconocidas} de ${p.alertas_ambito}`)]) },
+      { titulo: 'Respuesta media', ver: (p) => fmtMin(p.respuesta_min) },
+      { titulo: 'Soluciones', num: true, campo: 'soluciones' }, { titulo: 'Efectivas', num: true, campo: 'efectivas' }, { titulo: 'Cuestionadas', num: true, ver: (p) => (p.cuestionadas ? el('strong', { class: 'alerta-n' }, p.cuestionadas) : 0) },
+      { titulo: 'Efectividad', ver: (p) => barraPct(p.efectividad) }, { titulo: 'Resolución media', ver: (p) => fmtMin(p.resolucion_min) },
+      { titulo: 'Sin atender', num: true, ver: (p) => (p.sin_atender == null ? '—' : p.sin_atender) }, { titulo: 'Derivaciones', num: true, campo: 'derivaciones' },
+      { titulo: 'Mantenciones cerradas', num: true, campo: 'mantenciones_cerradas' }], d.personas, 'No hay personas activas.'));
 }
 
 /* ---------------- Equipos vinculados (administrador) ---------------- */
@@ -265,8 +356,22 @@ async function secEquipos(z) {
         : botonTexto('Revocar', () => confirm('¿Revocar este equipo? Se cerrará su sesión.') && accion(m, () => api.post(`/equipos/${f.id}/revocar`), 'Equipo revocado.', recargar)())) }], datos, 'Aún no hay equipos vinculados.'));
 }
 
+/* ---------------- Mantenciones y técnicos ---------------- */
+async function secMantenciones(z) {
+  const m = marco(z), recargar = () => secMantenciones(z);
+  const filtro = z.dataset.filtroMant || 'abiertas', datos = await api.get(`/mantenciones${qs({ estado: filtro })}`);
+  const sel = el('select', { onchange: (e) => { z.dataset.filtroMant = e.target.value; recargar(); } }, [['abiertas', 'Abiertas (pendientes y en curso)'], ['', 'Todas'], ['completada', 'Realizadas'], ['cancelada', 'Canceladas']]
+    .map(([v, t]) => el('option', { value: v, selected: v === filtro }, t)));
+  m.cuerpo.append(el('p', { class: 'ayuda' }, 'Órdenes de mantención creadas al derivar una alerta (visita de técnico, cambio de batería o de dispositivo…). Quien las atiende registra qué hizo; si el dispositivo vuelve a informar valores normales, la alerta se resuelve sola.'),
+    el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar'), sel),
+    datos.length ? el('div', { class: 'lista-mantenciones' }, datos.map((x) => el('article', { class: 'card-informe' },
+      el('div', { class: 'meta suave' }, `${x.instalacion || ''} · ${x.cultivo || '—'} · ${x.dispositivo || '—'}`), cajaMantencion(x, recargar, 'boton-secundario'),
+      el('a', { class: 'boton-texto', href: '#/alertas' }, 'Ver la alerta'))))
+      : el('p', { class: 'ayuda' }, 'No hay mantenciones con este filtro.'));
+}
+
 const SECCIONES = [['usuarios', 'Usuarios', secUsuarios], ['instalaciones', 'Instalaciones', secInstalaciones], ['cultivos', 'Cultivos y plantas', secCultivos],
-  ['dispositivos', 'Dispositivos y sensores', secDispositivos], ['tipos', 'Tipos de sensor', secTipos], ['reglas', 'Reglas de alerta', secReglas], ['seguimiento', 'Seguimiento de alertas', secSeguimiento], ['informes', 'Informes', secInformes],
+  ['dispositivos', 'Dispositivos y sensores', secDispositivos], ['tipos', 'Tipos de sensor', secTipos], ['reglas', 'Reglas de alerta', secReglas], ['seguimiento', 'Seguimiento de alertas', secSeguimiento], ['mantenciones', 'Mantenciones', secMantenciones], ['informes', 'Informes', secInformes],
   ['equipos', 'Equipos vinculados', secEquipos], ['parametros', 'Parámetros', secParametros], ['manual', 'Carga manual', secManual], ['auditoria', 'Auditoría', secAuditoria]];
 
 /* Pantalla «Administración» de la web (pestañas). */

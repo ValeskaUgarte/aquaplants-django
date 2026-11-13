@@ -10,6 +10,9 @@ class FlujoSupervisorTests(Base):
         adm, _ = self.entrar("administrador")
         return adm, adm.get("/api/alertas").json()[0]["id"]
 
+    def avisos(self, c):
+        return c.get("/api/notificaciones").json()
+
     def estado_panel(self, c):
         return next(x for i in c.get("/api/panel").json()["instalaciones"] for x in i["cultivos"] if x["dispositivo_codigo"] == "AQB-01")
 
@@ -19,6 +22,8 @@ class FlujoSupervisorTests(Base):
         self.assertEqual(self.estado_panel(sup)["estado_alerta"], "activa")
         self.assertEqual(self.post(sup, csrf, f"/api/alertas/{aid}/reconocer").status_code, 204)
         self.assertEqual(self.estado_panel(sup)["estado_alerta"], "reconocida")
+        sid = rtdb().get(f"alertas/{aid}/sensor_id")
+        rtdb().update({f"ultima/{sid}/valor": 2.0})                                   # el dato real ya está normal: se acepta de inmediato
         r = self.post(sup, csrf, f"/api/alertas/{aid}/revisar", {"solucionado": True, "nota": "Cambié el filtro obstruido"})
         self.assertEqual(r.status_code, 204, r.content)
         a = adm.get("/api/alertas").json()[0]
@@ -52,7 +57,7 @@ class FlujoSupervisorTests(Base):
         self.assertEqual(self.post(sup, csrf_s, f"/api/alertas/{aid}/verificar", {"aprobada": True, "nota": "Confirmado en terreno"}).status_code, 409)
         a = adm.get("/api/alertas").json()[0]
         self.assertEqual(a["estado"], "resuelta")
-        self.assertEqual([b["accion"] for b in a["bitacora"]], ["reconoció", "dio solución", "se resolvió automáticamente"])
+        self.assertEqual([b["accion"] for b in a["bitacora"]], ["reconoció", "dio solución", "esperando la medición", "se resolvió automáticamente"])
         self.assertEqual(self.estado_panel(enc)["estado_alerta"], "ok")
 
     def test_alerta_sin_revisar_se_resuelve_sola_cuando_vuelve_a_la_normalidad(self):
@@ -78,13 +83,72 @@ class FlujoSupervisorTests(Base):
         # si no lo logra, él mismo lo deja registrado y la alerta sigue abierta
         self.assertEqual(self.post(adm, csrf_a, f"/api/alertas/{aid}/revisar", {"solucionado": False, "nota": "Falta repuesto"}).status_code, 204)
         self.assertEqual(adm.get("/api/alertas").json()[0]["estado"], "reconocida")
-        # si lo soluciona, queda resuelta de inmediato: nadie más debe confirmarlo
+        # si lo soluciona y el dato real ya está normal, queda resuelta de inmediato: nadie más debe confirmarlo
+        sid = rtdb().get(f"alertas/{aid}/sensor_id")
+        rtdb().update({f"ultima/{sid}/valor": 2.0})
         self.assertEqual(self.post(adm, csrf_a, f"/api/alertas/{aid}/revisar", {"solucionado": True, "nota": "Cambié la manguera"}).status_code, 204)
         a = adm.get("/api/alertas").json()[0]
         self.assertEqual(a["estado"], "resuelta")
         self.assertFalse(a["resuelta_auto"])
         self.assertEqual([b["accion"] for b in a["bitacora"]], ["reconoció", "no pudo solucionar", "resolvió"])
         self.assertIn("administrador", a["verificacion_nota"])
+
+    def test_solucion_que_la_medicion_no_respalda_queda_cuestionada_y_se_deriva(self):
+        from core import monitor
+        adm, aid = self.alerta_caudal()
+        enc, csrf_e = self.entrar("encargado_cultivo")
+        sup, csrf_s = self.entrar("supervisor")
+        self.post(enc, csrf_e, f"/api/alertas/{aid}/reconocer")
+        # dice «solucionado», pero el valor real sigue fuera de rango: queda esperando la medición
+        self.assertEqual(self.post(enc, csrf_e, f"/api/alertas/{aid}/revisar", {"solucionado": True, "nota": "Ya quedó"}).status_code, 204)
+        a = adm.get("/api/alertas").json()[0]
+        self.assertEqual(a["estado"], "revisada")
+        self.assertIsNotNone(a["espera_medicion_hasta"])
+        self.assertFalse(a["solucion_cuestionada"])
+        self.assertEqual(monitor.revisar_soluciones(), 0)                          # aún dentro del plazo
+        rtdb().update({f"alertas/{aid}/espera_medicion_hasta": 1})                 # pasó el plazo y el dato sigue mal
+        self.assertEqual(monitor.revisar_soluciones(), 1)
+        a = adm.get("/api/alertas").json()[0]
+        self.assertEqual((a["estado"], a["solucion_cuestionada"]), ("reconocida", True))
+        ult = a["bitacora"][-1]
+        self.assertEqual((ult["por"], ult["accion"]), ("Sistema", "solución no confirmada por la medición"))
+        self.assertIn("Encargado Demo", ult["nota"])
+        self.assertIn("Solución no confirmada", " | ".join(n["titulo"] for n in self.avisos(adm)["items"]))
+        self.assertTrue(any(r["accion"] == "solucion_cuestionada" for _, r in rtdb().rango("auditoria", ultimos=10)))
+        # se deriva a mantención: queda la orden, la bitácora y los avisos; no se puede derivar dos veces seguidas
+        r = self.post(enc, csrf_e, f"/api/alertas/{aid}/derivar", {"tipo": "bateria", "nota": "El equipo no enciende, parece la batería"})
+        self.assertEqual(r.status_code, 201, r.content)
+        mid = r.json()["id"]
+        self.assertEqual(self.post(enc, csrf_e, f"/api/alertas/{aid}/derivar", {"tipo": "tecnico", "nota": "Otra vez lo mismo"}).status_code, 409)
+        self.assertEqual(self.post(enc, csrf_e, f"/api/alertas/{aid}/derivar", {"tipo": "xx", "nota": "no vale"}).status_code, 400)
+        a = adm.get("/api/alertas").json()[0]
+        self.assertEqual((a["mantencion"]["estado"], a["mantencion"]["tipo_texto"]), ("pendiente", "Cambio de batería"))
+        self.assertIn("derivó a mantención", [b["accion"] for b in a["bitacora"]])
+        self.assertIn("Derivada a técnico", " | ".join(n["titulo"] for n in self.avisos(sup)["items"]))
+        # el encargado no gestiona las órdenes; el supervisor sí, y debe contar qué se hizo
+        self.assertEqual(self.enviar_api(enc, csrf_e, "patch", f"/api/mantenciones/{mid}", {"estado": "en_curso"}).status_code, 403)
+        self.assertEqual(self.enviar_api(sup, csrf_s, "patch", f"/api/mantenciones/{mid}", {"estado": "completada"}).status_code, 400)
+        self.assertEqual(self.enviar_api(sup, csrf_s, "patch", f"/api/mantenciones/{mid}", {"estado": "completada", "nota": "Cambié la batería", "tecnico": "Juan Pérez"}).status_code, 204)
+        m = sup.get("/api/mantenciones", {"estado": "completada"}).json()
+        self.assertEqual((len(m), m[0]["tecnico"], m[0]["resultado"]), (1, "Juan Pérez", "Cambié la batería"))
+        self.enviar([self.med("CAU1", "caudal", 2.0, "L/min")])                    # al fin el dato vuelve a la normalidad
+        self.assertEqual(adm.get("/api/alertas").json()[0]["estado"], "resuelta")
+        # el informe de trabajadores lo refleja: una solución cuestionada y una mantención
+        e = next(p for p in adm.get("/api/informes/trabajadores").json()["personas"] if p["rol"] == "encargado_cultivo")
+        self.assertEqual((e["soluciones"], e["cuestionadas"], e["efectivas"], e["efectividad"], e["derivaciones"]), (1, 1, 0, 0.0, 1))
+
+    def test_rechazo_del_supervisor_cuestiona_la_solucion(self):
+        adm, aid = self.alerta_caudal()
+        enc, csrf_e = self.entrar("encargado_cultivo")
+        sup, csrf_s = self.entrar("supervisor")
+        self.post(enc, csrf_e, f"/api/alertas/{aid}/reconocer")
+        self.post(enc, csrf_e, f"/api/alertas/{aid}/revisar", {"solucionado": True, "nota": "Ya quedó"})
+        self.assertEqual(self.post(sup, csrf_s, f"/api/alertas/{aid}/verificar", {"aprobada": False, "nota": "Sigue sin caudal"}).status_code, 204)
+        a = adm.get("/api/alertas").json()[0]
+        self.assertEqual((a["estado"], a["solucion_cuestionada"], a["requiere_tecnico"]), ("reconocida", True, False))   # umbral: a la primera no exige técnico
+        self.post(enc, csrf_e, f"/api/alertas/{aid}/revisar", {"solucionado": True, "nota": "Ahora sí"})
+        self.post(sup, csrf_s, f"/api/alertas/{aid}/verificar", {"aprobada": False, "nota": "Sigue igual"})
+        self.assertTrue(adm.get("/api/alertas").json()[0]["requiere_tecnico"])       # a la segunda se pide un técnico
 
 
 class SensoresAmpliadosTests(Base):

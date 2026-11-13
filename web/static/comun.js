@@ -144,6 +144,10 @@ const ETIQUETA_FALLA = { activa: 'sin atender', reconocida: 'en revisión', revi
 /* Cada acción de la bitácora se muestra como un paso con su color, su título, quién y cuándo. */
 function tipoPaso(accion) {
   if (/autom/.test(accion)) return { clase: 'auto', icono: '↻', titulo: 'Se resolvió sola' };
+  if (/no confirmada/.test(accion)) return { clase: 'mal', icono: '⚠', titulo: 'Solución no confirmada por la medición' };
+  if (/esperando la medici/.test(accion)) return { clase: 'espera', icono: '⏱', titulo: 'Esperando la medición' };
+  if (/deriv/.test(accion)) return { clase: 'tec', icono: '🔧', titulo: 'Derivada a técnico / mantención' };
+  if (/mantenci/.test(accion)) return { clase: 'tec', icono: '🔧', titulo: /realizada/.test(accion) ? 'Mantención realizada' : /cancel/.test(accion) ? 'Mantención cancelada' : 'Mantención en curso' };
   if (/no pudo/.test(accion)) return { clase: 'mal', icono: '✖', titulo: 'Revisada: no se pudo solucionar' };
   if (/rechaz/.test(accion)) return { clase: 'mal', icono: '↩', titulo: 'Solución rechazada' };
   if (/resolvi/.test(accion)) return { clase: 'bien', icono: '✔', titulo: 'Resuelta' };
@@ -168,8 +172,12 @@ function pasosDeAlerta(a) {
   }
   if (a.estado !== 'resuelta') {
     const rechazada = a.verificacion_aprobada === false && a.estado === 'reconocida';
+    const mant = a.mantencion && ['pendiente', 'en_curso'].includes(a.mantencion.estado) ? a.mantencion : null;
     pasos.push({ clase: 'pend', icono: '⏳', titulo: 'Pendiente',
-      texto: a.estado === 'activa' ? 'Nadie ha ido a revisar todavía. Si el valor vuelve a la normalidad antes, se resolverá sola.'
+      texto: mant ? `Derivada a mantención (${mant.tipo_texto}, ${mant.estado_texto.toLowerCase()}). Se resolverá sola cuando el dato vuelva a la normalidad.`
+        : a.solucion_cuestionada && a.estado === 'reconocida' ? 'La medición no respaldó la solución informada: hay que volver a revisar o derivar a un técnico.'
+        : a.estado === 'revisada' && a.espera_medicion_hasta ? `Se informó la solución. La medición tiene hasta las ${horaCorta(a.espera_medicion_hasta)} para confirmarlo; si se normaliza, la alerta se resuelve sola.`
+        : a.estado === 'activa' ? 'Nadie ha ido a revisar todavía. Si el valor vuelve a la normalidad antes, se resolverá sola.'
         : a.estado === 'revisada' ? 'Falta que el supervisor o el administrador confirme la solución.'
           : rechazada ? 'Se rechazó la solución: hay que volver a revisar.' : `${a.reconocida_por || 'Alguien'} está revisando.` });
   } else if (a.resuelta_en) {
@@ -198,6 +206,7 @@ function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
   };
   const nota = (ph) => el('textarea', { rows: 2, maxlength: 500, placeholder: ph, oninput: (e) => { AQ.editando = e.target.value.length > 0; } });
   const boton = (t, f) => el('button', { type: 'button', class: clase, onclick: f }, t);
+  caja.append(...avisosAlerta(a, alTerminar, clase));
   if (a.estado === 'activa') {
     caja.append(esEncargado ? boton('Reconocer (voy a revisar)', () => enviar('reconocer', {}, 'Alerta reconocida')) : el('span', { class: 'meta suave' }, 'Nadie ha ido a revisar todavía.'));
   } else if (a.estado === 'reconocida') {
@@ -222,7 +231,61 @@ function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
           el('button', { type: 'button', class: `${clase} boton-mal`, onclick: () => enviar('verificar', { aprobada: false, nota: t.value }, 'Solución rechazada: vuelve a revisión') }, '✖ Rechazar')));
     } else caja.append(el('span', { class: 'meta suave' }, 'Esperando la confirmación del supervisor.'));
   }
+  const mantAbierta = a.mantencion && ['pendiente', 'en_curso'].includes(a.mantencion.estado);
+  if (esEncargado && a.estado !== 'activa' && !mantAbierta) caja.append(formularioDerivar(a, alTerminar, clase, a.requiere_tecnico));
   return caja.append(msg), caja;
+}
+
+/* ---------------- Solución cuestionada y derivación a técnico / mantención ---------------- */
+const TIPOS_MANTENCION = [['tecnico', 'Visita de técnico'], ['bateria', 'Cambio de batería'], ['dispositivo', 'Cambio de dispositivo'], ['sensor', 'Revisión o cambio de sensor'],
+  ['red', 'Revisión de red, WiFi o energía'], ['otro', 'Otra mantención']];
+function avisosAlerta(a, alTerminar, clase) {
+  const salida = [];
+  if (a.solucion_cuestionada && a.estado !== 'resuelta') salida.push(el('div', { class: 'banner-alerta mal' }, el('strong', {}, '⚠ La medición no respaldó una solución informada. '), 'Queda registrado en la bitácora y en la auditoría.'));
+  if (a.requiere_tecnico) salida.push(el('div', { class: 'banner-alerta tec' }, el('strong', {}, '🔧 Se recomienda derivar a un técnico. '), 'Revisa la conexión, la batería o cambia el dispositivo si no vuelve a comunicarse.'));
+  if (a.mantencion) salida.push(cajaMantencion(a.mantencion, alTerminar, clase));
+  return salida;
+}
+function cajaMantencion(m, alTerminar, clase) {
+  const abierta = ['pendiente', 'en_curso'].includes(m.estado), puede = ['supervisor', 'administrador'].includes(AQ.usuario.rol);
+  const caja = el('div', { class: `mantencion ${m.estado}` },
+    el('div', { class: 'mantencion-cab' }, el('strong', {}, `🔧 ${m.tipo_texto}`), el('span', { class: `etiqueta m-${m.estado}` }, m.estado_texto)),
+    el('div', { class: 'meta suave' }, `Derivada por ${m.creada_por || '—'} · ${fechaHora(m.creada_en)}${m.tecnico ? ' · Técnico: ' + m.tecnico : ''}`),
+    m.nota ? el('div', { class: 'paso-texto sin-sangria' }, m.nota) : null,
+    m.resultado ? el('div', { class: 'paso-texto sin-sangria' }, el('strong', {}, 'Resultado: '), m.resultado, m.completada_por ? ` (${m.completada_por}, ${fechaHora(m.completada_en)})` : '') : null);
+  if (abierta && puede) {
+    const t = el('textarea', { rows: 2, maxlength: 500, placeholder: 'Qué se hizo (obligatorio al cerrar) o por qué se cancela', oninput: (e) => { AQ.editando = e.target.value.length > 0; } });
+    const tec = el('input', { type: 'text', maxlength: 120, placeholder: 'Técnico o empresa (opcional)', value: m.tecnico || '' });
+    const mover = async (estado, ok) => {
+      if (estado !== 'en_curso' && t.value.trim().length < 5) { mostrarAviso('Cuenta qué se hizo (o por qué se cancela): al menos 5 letras.', 'error'); t.focus(); return; }
+      try { await api.patch(`/mantenciones/${m.id}`, { estado, nota: t.value.trim(), tecnico: tec.value.trim() }); AQ.editando = false; mostrarAviso(ok, 'ok'); await alTerminar(ok); }
+      catch (e) { mostrarAviso(mensajeError(e), 'error'); }
+    };
+    caja.append(tec, t, el('div', { class: 'botones-revision' },
+      m.estado === 'pendiente' ? el('button', { type: 'button', class: clase, onclick: () => mover('en_curso', 'Mantención en curso') }, 'Poner en curso') : null,
+      el('button', { type: 'button', class: `${clase} boton-ok`, onclick: () => mover('completada', 'Mantención registrada como realizada') }, '✔ Realizada'),
+      el('button', { type: 'button', class: `${clase} boton-mal`, onclick: () => mover('cancelada', 'Mantención cancelada') }, 'Cancelar')));
+  }
+  return caja;
+}
+function formularioDerivar(a, alTerminar, clase, destacado) {
+  const zona = el('div', { class: 'derivar' });
+  const abrir = () => {
+    const tipo = el('select', {}, TIPOS_MANTENCION.map(([v, t]) => el('option', { value: v, selected: v === (a.tipo === 'sin_comunicacion' ? 'tecnico' : 'otro') }, t)));
+    const tec = el('input', { type: 'text', maxlength: 120, placeholder: 'Técnico o empresa (opcional)' });
+    const nota = el('textarea', { rows: 2, maxlength: 500, placeholder: '¿Por qué hace falta? (qué se probó y qué se ve)', oninput: (e) => { AQ.editando = e.target.value.length > 0; } });
+    const enviar = async () => {
+      if (nota.value.trim().length < 5) { mostrarAviso('Cuenta por qué se deriva (al menos 5 letras).', 'error'); nota.focus(); return; }
+      try { await api.post(`/alertas/${a.id}/derivar`, { tipo: tipo.value, nota: nota.value.trim(), ...(tec.value.trim() ? { tecnico: tec.value.trim() } : {}) }); AQ.editando = false; mostrarAviso('Alerta derivada a mantención', 'ok'); await alTerminar('Derivada'); }
+      catch (e) { mostrarAviso(mensajeError(e), 'error'); }
+    };
+    vaciar(zona).append(el('div', { class: 'derivar-form' }, el('strong', {}, 'Derivar a técnico / mantención'), tipo, tec, nota,
+      el('div', { class: 'botones-revision' }, el('button', { type: 'button', class: `${clase} boton-ok`, onclick: enviar }, 'Derivar'),
+        el('button', { type: 'button', class: clase, onclick: () => { AQ.editando = false; vaciar(zona).append(boton()); } }, 'Cancelar'))));
+    AQ.editando = true;
+  };
+  const boton = () => el('button', { type: 'button', class: `${clase} ${destacado ? 'boton-tec' : ''}`, onclick: abrir }, '🔧 Derivar a técnico / mantención');
+  return zona.append(boton()), zona;
 }
 
 const fechaHora = (iso) => (iso ? new Date(iso).toLocaleString('es-CL') : '—');

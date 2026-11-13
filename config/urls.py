@@ -2,7 +2,7 @@ from django.conf import settings
 from django.urls import path, re_path
 from django.views.static import serve
 
-from core.vistas import auth, catalogo, informes, ingesta, notificaciones, operacion, simulacion, vinculacion, web
+from core.vistas import auth, catalogo, informes, ingesta, mantencion, notificaciones, operacion, simulacion, vinculacion, web
 from core.http import (Campo, ErrorApi, booleano, conflicto, exigir_acceso_instalacion, fecha_iso, instalaciones_visibles,
                        invalido, ip_cliente, no_encontrado, numero, id_valor, ruta, sin_contenido, texto, validar)
 
@@ -48,6 +48,9 @@ urlpatterns = [
     path("api/alertas/<str:pk>/reconocer", operacion.reconocer_alerta),
     path("api/alertas/<str:pk>/revisar", operacion.revisar_alerta),
     path("api/alertas/<str:pk>/verificar", operacion.verificar_alerta),
+    path("api/alertas/<str:pk>/derivar", mantencion.derivar_alerta),
+    path("api/mantenciones", mantencion.mantenciones),
+    path("api/mantenciones/<str:pk>", mantencion.mantencion_detalle),
     path("api/eventos", operacion.eventos),
     path("api/panel", operacion.panel),
     path("api/movil/resumen", operacion.resumen_movil),
@@ -60,6 +63,7 @@ urlpatterns = [
     path("api/notificaciones/leer", notificaciones.leer),
     path("api/seguimiento-alertas", informes.seguimiento),
     path("api/informes", informes.descargar),
+    path("api/informes/trabajadores", informes.trabajadores),
 
     # Vinculación de la cuenta con el equipo (celular / navegador)
     path("api/vinculacion/registrar", vinculacion.registrar),

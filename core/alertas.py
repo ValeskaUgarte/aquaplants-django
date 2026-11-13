@@ -78,6 +78,34 @@ def normalizar(clave, mapa, detalle=""):
         return aid
 
 
+GRACIA_MEDICION_MS = 5 * 60_000     # plazo para que la medición confirme una solución recién informada
+
+
+def bitacora_sistema(mapa, aid, accion, nota="", sobre=None):
+    """Línea de bitácora escrita por el sistema (no por una persona). `sobre` = persona a la que se refiere, si corresponde."""
+    ahora = ahora_ms()
+    e = {"por": "sistema", "rol": "sistema", "accion": accion, "nota": nota, "en": ahora}
+    if sobre:
+        e["sobre"] = sobre
+    mapa[f"alertas/{aid}/bitacora/{clave_ms(ahora)}_{secrets.token_hex(2)}"] = e
+
+
+def cuestionar(aid, persona_id, motivo, mapa, requiere_tecnico=False):
+    """La medición contradice lo que informó `persona_id` (dijo «solucionado» y el problema persiste): queda marcado en la alerta,
+    en la bitácora y (lo hace el llamador) en la auditoría y en los avisos. No se juzga a la persona: se deja constancia del dato."""
+    ahora = ahora_ms()
+    mapa[f"alertas/{aid}/cuestionadas/{clave_ms(ahora)}_{secrets.token_hex(2)}"] = {"a": persona_id, "en": ahora, "motivo": motivo}
+    mapa[f"alertas/{aid}/solucion_cuestionada"] = True
+    if requiere_tecnico:
+        mapa[f"alertas/{aid}/requiere_tecnico"] = True
+    bitacora_sistema(mapa, aid, "solución no confirmada por la medición", motivo, sobre=persona_id)
+
+
+def abiertas_ids():
+    with _lock:
+        return list(_cargar().values())
+
+
 def cerrar(aid, mapa):
     """Saca la alerta del conjunto de abiertas (alguien con autoridad confirmó o dio la solución)."""
     with _lock:

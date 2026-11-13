@@ -41,6 +41,46 @@ def revisar_dispositivos() -> int:
     return caidos
 
 
+def revisar_soluciones() -> int:
+    """Una solución informada («quedó solucionado») debe verse en la medición. Si pasó el plazo y el dato sigue igual de mal, la alerta
+    vuelve a revisión, queda marcada como «solución no confirmada por la medición», se deja en la auditoría y se avisa; para un corte de
+    comunicación se recomienda además derivar a un técnico. Si ya se normalizó, la alerta se resolvió sola y aquí no hay nada que hacer."""
+    from core.vistas.operacion import causa_presente
+    ahora, mapa, n, usr = ahora_ms(), {}, 0, repo.col("usuarios")
+    pendientes = []
+    for aid in alertas.abiertas_ids():
+        a = rtdb().get(f"alertas/{aid}") or {}
+        hasta = a.get("espera_medicion_hasta")
+        if a.get("estado") == "revisada" and hasta and hasta <= ahora:
+            pendientes.append({**a, "id": aid})
+    for a in pendientes:
+        mapa[f"alertas/{a['id']}/espera_medicion_hasta"] = None
+        presente, detalle = causa_presente(a)
+        if not presente:
+            continue
+        quien = usr.get(a.get("revision_por"), {}).get("nombre", "Quien revisó")
+        motivo = f"{quien} informó que quedó solucionado, pero {detalle}."
+        tecnico = a.get("tipo") == "sin_comunicacion" or bool(a.get("cuestionadas"))
+        mapa[f"alertas/{a['id']}/estado"] = "reconocida"                 # vuelve a revisión
+        alertas.cuestionar(a["id"], a.get("revision_por"), motivo, mapa, requiere_tecnico=tecnico)
+        notificaciones.por_cuestionada(a["id"], a, motivo, tecnico, mapa)
+        n += 1
+    if mapa:
+        try:
+            rtdb().update(mapa)
+        except Exception:
+            notificaciones.descartar_push()
+            raise
+        from core import seguridad
+        for a in pendientes:
+            if mapa.get(f"alertas/{a['id']}/solucion_cuestionada"):
+                seguridad.registrar_auditoria(accion="solucion_cuestionada", entidad="alerta", entidad_id=a["id"],
+                                              detalle={"persona": a.get("revision_por"), "tipo": a.get("tipo")})
+        notificaciones.despachar_push()
+        cache_micro.limpiar()
+    return n
+
+
 def depurar():
     """Una vez por hora: sesiones vencidas y, si `retencion_historicos_dias` > 0, mediciones antiguas."""
     global _ultima_depuracion
@@ -66,6 +106,7 @@ def depurar():
 def ciclo():
     try:
         revisar_dispositivos()
+        revisar_soluciones()
         depurar()
     except Exception:  # noqa: BLE001
         log.exception("fallo en tarea periódica")

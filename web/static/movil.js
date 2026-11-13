@@ -133,6 +133,8 @@ function tarjetaAlerta(a, alTerminar) {
     el('div', { class: 'fila' }, el('h3', {}, tituloAlerta(a)), el('span', { class: `chip ${a.estado}` }, ETIQUETA[a.estado] || a.estado)),
     el('div', { class: 'meta' }, `${a.cultivo || a.instalacion} · ${[a.dispositivo_codigo, a.sensor_codigo].filter(Boolean).join(' · ')} · ${fechaHora(a.creada_en)}`),
     el('div', { class: 'msg' }, a.mensaje),
+    a.solucion_cuestionada && a.estado !== 'resuelta' ? el('span', { class: 'chip cuestionada' }, 'Solución cuestionada') : null,
+    a.mantencion ? el('span', { class: `chip m-${a.mantencion.estado}` }, `Mantención: ${a.mantencion.estado_texto.toLowerCase()}`) : null,
     ...trazaAlerta(a),
     accionesAlerta(a, async () => { await refrescar(); if (alTerminar) await alTerminar(); }, 'boton'));
 }

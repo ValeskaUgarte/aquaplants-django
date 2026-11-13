@@ -14,15 +14,18 @@ from django.conf import settings
 
 from core import alertas as modulo_alertas
 from core import repo
+from core.vistas.mantencion import ESTADOS as ESTADOS_MANT, TIPOS as TIPOS_MANT
 from core.http import ErrorApi
 from core.rtdb import rtdb
 from core.util import ahora_ms, clave_ms
 
 ZONA = ZoneInfo("America/Santiago")
-TOPE_LECTURA = 400_000        # mediciones que se leen de la base por informe
-TOPE_FILAS = 150_000          # filas que se escriben por hoja
+TOPE_LECTURA = 4_000_000      # mediciones que se leen de la base por informe (se procesan por tramos, sin guardarlas todas en memoria)
+TOPE_FILAS = {"xlsx": 150_000, "csv": 800_000}   # filas de mediciones por archivo; si se superan, el informe se agrupa más en vez de fallar
 AGREGACIONES = {"crudo": None, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
-TIPOS = ("completo", "mediciones", "alertas", "eventos", "resumen")
+NIVELES = ("crudo", "5m", "15m", "1h", "1d")      # de más a menos detalle
+NOMBRE_AGREGACION = {"crudo": "sin agrupar (cada medición)", "5m": "cada 5 minutos", "15m": "cada 15 minutos", "1h": "cada hora", "1d": "diaria"}
+TIPOS = ("completo", "mediciones", "alertas", "eventos", "resumen", "trabajadores")
 ESTADOS = {"activa": "Activa", "reconocida": "Reconocida (en revisión)", "revisada": "Revisada (falta confirmar)", "resuelta": "Resuelta"}
 
 
@@ -56,8 +59,8 @@ def parametros(q):
     formato = q.get("formato") or "xlsx"
     if formato not in ("xlsx", "csv"):
         raise ErrorApi(400, "formato_invalido", "El formato debe ser xlsx o csv.")
-    if formato == "csv" and tipo in ("completo", "resumen"):
-        tipo = "mediciones" if tipo == "completo" else "resumen"
+    if formato == "csv" and tipo == "completo":
+        tipo = "mediciones"
     agregacion = q.get("agregacion") or "1h"
     if agregacion not in AGREGACIONES:
         raise ErrorApi(400, "agregacion_invalida", "Agregación no válida.")
@@ -96,54 +99,113 @@ def _sensores_filtrados(f):
     return sorted(salida, key=lambda x: (x["instalacion"].lower(), x["cultivo"].lower(), x["dispositivo"], x["codigo"]))
 
 
-def _leer_mediciones(sid, desde, hasta, usado):
-    """Lee por páginas todas las mediciones del sensor en el rango. `usado` = lista de 1 elemento con el total ya leído."""
-    filas, cursor, fin = [], clave_ms(desde), clave_ms(hasta)
+class _Excede(Exception):
+    """Las filas superan lo que cabe en el archivo con el detalle pedido: se repite con una agrupación mayor."""
+
+
+def _procesar_sensor(sid, desde, hasta, bucket, usado, con_filas, cupo):
+    """Lee las mediciones de un sensor POR TRAMOS y las va resumiendo sobre la marcha (no guarda todas en memoria).
+    Devuelve (estadísticas, filas_sin_agrupar, grupos). `cupo` = filas que aún caben en el archivo."""
+    est = {"n": 0, "min": math.inf, "max": -math.inf, "suma": 0.0, "ultimo": None, "ultima_t": None}
+    crudas, grupos = [], {}
+    cursor, fin = clave_ms(desde), clave_ms(hasta)
     while True:
         lote = rtdb().rango(f"mediciones/{sid}", desde=cursor, hasta=fin, primeros=5000)
-        filas += [(int(k), v) for k, v in lote if int(k) < hasta]
+        for k, v in lote:
+            t = int(k)
+            if t >= hasta:
+                continue
+            x = v["v"]
+            est["n"] += 1; est["suma"] += x; est["ultimo"], est["ultima_t"] = x, t
+            if x < est["min"]:
+                est["min"] = x
+            if x > est["max"]:
+                est["max"] = x
+            if not con_filas:
+                continue
+            if bucket is None:
+                crudas.append((t, v))
+            else:
+                inicio = math.floor(t / 1000 / bucket) * bucket
+                g = grupos.get(inicio)
+                if g is None:
+                    grupos[inicio] = [x, x, x, 1]                  # suma, mínimo, máximo, cantidad
+                else:
+                    g[0] += x; g[3] += 1
+                    if x < g[1]:
+                        g[1] = x
+                    if x > g[2]:
+                        g[2] = x
         usado[0] += len(lote)
         if usado[0] > TOPE_LECTURA:
-            raise ErrorApi(413, "informe_demasiado_grande", "El informe es demasiado grande. Reduce el rango de fechas o filtra por cultivo/sensor.")
+            raise ErrorApi(413, "informe_demasiado_grande", "El rango tiene demasiadas mediciones para procesarlas de una sola vez. "
+                           "Genera el informe por tramos (por ejemplo mes a mes) o filtra por instalación o cultivo.")
+        if len(crudas) > cupo or len(grupos) > cupo:
+            raise _Excede()
         if len(lote) < 5000:
-            return filas
+            return est, crudas, grupos
         cursor = clave_ms(int(lote[-1][0]) + 1)
 
 
+def _nivel_que_cabe(nivel, n_sensores, segundos, tope):
+    """Primer nivel de agrupación (desde el pedido) cuyo máximo de filas posible cabe en el archivo. «Sin agrupar» no se puede acotar antes."""
+    if nivel == 0:
+        return 0
+    while nivel < len(NIVELES) - 1 and n_sensores * math.ceil(segundos / AGREGACIONES[NIVELES[nivel]]) > tope:
+        nivel += 1
+    return nivel
+
+
+def _medir(sensores, f, bucket, tope, con_filas):
+    filas, resumen, usado = [], [], [0]
+    for s in sensores:
+        est, crudas, grupos = _procesar_sensor(s["id"], f["desde"], f["hasta"], bucket, usado, con_filas, tope - len(filas))
+        n = est["n"]
+        resumen.append([s["instalacion"], s["cultivo"], s["dispositivo"], s["variable"], s["unidad"], n, est["min"] if n else None,
+                        est["suma"] / n if n else None, est["max"] if n else None, est["ultimo"], _local(est["ultima_t"]) if n else None])
+        if bucket is None:
+            filas += [[_local(t), s["instalacion"], s["cultivo"], s["dispositivo"], s["codigo"], s["variable"], v["v"], s["unidad"],
+                       {"diferido": "Diferido"}.get(v.get("e"), "Conectado"), v.get("o", "dispositivo")] for t, v in crudas]
+        else:
+            filas += [[_local(k * 1000), s["instalacion"], s["cultivo"], s["dispositivo"], s["codigo"], s["variable"], g[0] / g[3], g[1], g[2], g[3], s["unidad"]]
+                      for k, g in sorted(grupos.items())]
+        if len(filas) > tope:
+            raise _Excede()
+    return filas, resumen
+
+
 def construir(f, usuario):
-    """Devuelve {'resumen': (cabeceras, filas), 'mediciones': ..., 'alertas': ..., 'eventos': ..., 'meta': {...}}."""
+    """Devuelve {'resumen': (cabeceras, filas), 'mediciones': ..., 'alertas': ..., 'eventos': ..., 'meta': {...}}.
+    Un informe nunca falla por tamaño: si con el detalle pedido no cabe, se agrupa más (por hora, por día…) y se deja la nota en el archivo."""
     quiere = lambda *t: f["tipo"] in t  # noqa: E731
-    hojas, meta = {}, {"filas_mediciones": 0}
-    resumen_sensores = []
+    hojas, meta = {}, {"filas_mediciones": 0, "avisos": []}
     if quiere("completo", "mediciones", "resumen"):
-        sensores, usado, bucket = _sensores_filtrados(f), [0], AGREGACIONES[f["agregacion"]]
-        filas = []
-        for s in sensores:
-            datos = _leer_mediciones(s["id"], f["desde"], f["hasta"], usado)
-            vals = [v["v"] for _, v in datos]
-            resumen_sensores.append([s["instalacion"], s["cultivo"], s["dispositivo"], s["variable"], s["unidad"], len(vals),
-                                     min(vals) if vals else None, sum(vals) / len(vals) if vals else None, max(vals) if vals else None,
-                                     vals[-1] if vals else None, _local(datos[-1][0]) if datos else None])
-            if not quiere("completo", "mediciones"):
-                continue
-            if bucket is None:
-                filas += [[_local(t), s["instalacion"], s["cultivo"], s["dispositivo"], s["codigo"], s["variable"], v["v"], s["unidad"],
-                           {"diferido": "Diferido"}.get(v.get("e"), "Conectado"), v.get("o", "dispositivo")] for t, v in datos]
-            else:
-                grupos = {}
-                for t, v in datos:
-                    k = math.floor(t / 1000 / bucket) * bucket
-                    g = grupos.setdefault(k, [0.0, math.inf, -math.inf, 0])
-                    g[0] += v["v"]; g[1] = min(g[1], v["v"]); g[2] = max(g[2], v["v"]); g[3] += 1
-                filas += [[_local(k * 1000), s["instalacion"], s["cultivo"], s["dispositivo"], s["codigo"], s["variable"], g[0] / g[3], g[1], g[2], g[3], s["unidad"]]
-                          for k, g in sorted(grupos.items())]
-            if len(filas) > TOPE_FILAS:
-                raise ErrorApi(413, "informe_demasiado_grande", "El informe supera las filas permitidas. Usa una agregación mayor, o reduce el rango o los filtros.")
+        sensores, tope = _sensores_filtrados(f), TOPE_FILAS[f["formato"]]
+        con_filas, segundos = quiere("completo", "mediciones"), (f["hasta"] - f["desde"]) / 1000
+        pedido = nivel = NIVELES.index(f["agregacion"])
+        if not con_filas:
+            nivel = len(NIVELES) - 1                       # solo se necesitan las estadísticas por sensor
+        else:
+            nivel = _nivel_que_cabe(nivel, len(sensores), segundos, tope)
+        while True:
+            try:
+                filas, resumen_sensores = _medir(sensores, f, AGREGACIONES[NIVELES[nivel]], tope, con_filas)
+                break
+            except _Excede:                                # solo ocurre «sin agrupar» o estimaciones muy justas
+                if nivel >= len(NIVELES) - 1:
+                    raise ErrorApi(413, "informe_demasiado_grande", "Incluso agrupando por día el informe es demasiado grande para un solo archivo. "
+                                   "Genéralo por instalación o cultivo, o por tramos de fechas.")
+                nivel = _nivel_que_cabe(max(nivel + 1, 1), len(sensores), segundos, tope)
+        if con_filas and nivel != pedido:
+            meta["avisos"].append(f"Las mediciones se agruparon {NOMBRE_AGREGACION[NIVELES[nivel]]} (se pidió {NOMBRE_AGREGACION[NIVELES[pedido]]}) porque "
+                                  f"con ese detalle el archivo superaba las {tope:,} filas permitidas. Para ver cada medición, acorta el rango o filtra por cultivo.".replace(",", "."))
+        f = {**f, "agregacion": NIVELES[nivel]}
+        bucket = AGREGACIONES[f["agregacion"]]
         if bucket is None:
             cab = ["Fecha y hora", "Instalación", "Cultivo", "Dispositivo", "Sensor", "Variable", "Valor", "Unidad", "Conexión", "Origen"]
         else:
             cab = ["Inicio del tramo", "Instalación", "Cultivo", "Dispositivo", "Sensor", "Variable", "Promedio", "Mínimo", "Máximo", "N.º mediciones", "Unidad"]
-        if quiere("completo", "mediciones"):
+        if con_filas:
             hojas["mediciones"] = (cab, filas)
             meta["filas_mediciones"] = len(filas)
         hojas["_resumen_sensores"] = (["Instalación", "Cultivo", "Dispositivo", "Variable", "Unidad", "Mediciones", "Mínimo", "Promedio", "Máximo", "Último valor", "Última medición"],
@@ -152,6 +214,8 @@ def construir(f, usuario):
         hojas["alertas"] = (_cab_alertas(), _filas_alertas(f))
     if quiere("completo", "eventos"):
         hojas["eventos"] = _hoja_eventos(f)
+    if quiere("completo", "trabajadores"):
+        hojas.update(_hojas_trabajadores(f))
     meta.update(generado=_local(ahora_ms()), usuario=usuario.get("nombre"), filtros=_descripcion_filtros(f))
     hojas["meta"] = meta
     return hojas
@@ -173,13 +237,21 @@ def _descripcion_filtros(f):
 def _cab_alertas():
     return ["Creada", "Estado", "Instalación", "Cultivo", "Dispositivo", "Sensor", "Tipo", "Detalle", "Valor detectado", "Reconocida por", "Reconocida el",
             "Revisada por", "Revisada el", "¿Quedó solucionado?", "Comentario del encargado", "Confirmada / rechazada por", "Fecha confirmación",
-            "Resultado supervisor", "Comentario del supervisor", "Volvió a la normalidad", "Resuelta el", "Minutos abierta", "Situación"]
+            "Resultado supervisor", "Comentario del supervisor", "Volvió a la normalidad", "Resuelta el", "Minutos abierta",
+            "Solución no confirmada por la medición", "Mantención derivada", "Situación"]
 
 
 def _situacion(a):
     e = a["estado"]
     if e == "resuelta":
         return "Resuelta automáticamente (el valor volvió a la normalidad)" if a.get("resuelta_auto") else "Resuelta"
+    m = repo.col("mantenciones").get(a.get("mantencion_id"))
+    if m and m.get("estado") in ("pendiente", "en_curso"):
+        return f"PENDIENTE: derivada a mantención ({TIPOS_MANT.get(m['tipo'], m['tipo'])} · {ESTADOS_MANT.get(m['estado'])})"
+    if a.get("solucion_cuestionada") and e == "reconocida":
+        return "PENDIENTE: la solución informada no se reflejó en la medición" + ("; se recomienda derivar a un técnico" if a.get("requiere_tecnico") else "")
+    if e == "revisada" and a.get("espera_medicion_hasta"):
+        return "PENDIENTE: se informó la solución; falta que la medición la confirme"
     if e == "activa":
         return "PENDIENTE: nadie ha ido a revisar"
     if e == "reconocida":
@@ -200,7 +272,13 @@ def _fila_alerta(a, nombres):
             usr.get(a.get("revision_por"), {}).get("nombre"), _local(a.get("revision_en")), si_no(a.get("revision_solucionado")), a.get("revision_nota"),
             usr.get(a.get("verificacion_por"), {}).get("nombre"), _local(a.get("verificacion_en")),
             None if a.get("verificacion_aprobada") is None else ("Confirmó la solución" if a["verificacion_aprobada"] else "Rechazó la revisión"),
-            a.get("verificacion_nota") or None, _local(a.get("normalizada_en")), _local(a.get("resuelta_en")), round(abierta, 1), _situacion(a)]
+            a.get("verificacion_nota") or None, _local(a.get("normalizada_en")), _local(a.get("resuelta_en")), round(abierta, 1),
+            "Sí" if a.get("solucion_cuestionada") else "No", _texto_mantencion(a), _situacion(a)]
+
+
+def _texto_mantencion(a):
+    m = repo.col("mantenciones").get(a.get("mantencion_id"))
+    return f"{TIPOS_MANT.get(m['tipo'], m['tipo'])} · {ESTADOS_MANT.get(m['estado'], m['estado'])}" if m else None
 
 
 def _nombres():
@@ -282,6 +360,98 @@ def seguimiento(usuario_visible=None):
             "resueltas": resueltas}
 
 
+# ------------------------------------------------------------------ trabajadores
+ROLES_TRABAJO = {"encargado_cultivo": "Encargado de cultivo", "supervisor": "Supervisor", "administrador": "Administrador"}
+SOLUCIONES = ("dio solución", "resolvió")
+
+
+def desempeno_trabajadores(f):
+    """Qué hizo cada persona con las alertas del período y cuánto de eso resultó efectivo.
+    Efectividad = soluciones informadas que se confirmaron (la alerta terminó resuelta) / (esas + las que la medición o el supervisor cuestionaron).
+    Cumplimiento (solo encargados) = alertas de sus instalaciones que ellos reconocieron / alertas de sus instalaciones en el período."""
+    alertas_ = alertas_en_rango({**f, "estado": "", "sensor_id": ""})
+    inst, cult, disp = repo.col("instalaciones"), repo.col("cultivos"), repo.col("dispositivos")
+    mant = [m for m in repo.lista("mantenciones") if f["desde"] <= m.get("creada_en", 0) < f["hasta"]
+            and (not f["instalacion_id"] or m.get("instalacion_id") == f["instalacion_id"]) and (not f["cultivo_id"] or m.get("cultivo_id") == f["cultivo_id"])]
+    salida, detalle = [], []
+    for u in sorted(repo.lista("usuarios"), key=lambda x: (list(ROLES_TRABAJO).index(x.get("rol")) if x.get("rol") in ROLES_TRABAJO else 9, x.get("nombre", ""))):
+        if not u.get("activo", True) or u.get("rol") not in ROLES_TRABAJO:
+            continue
+        enc = u["rol"] == "encargado_cultivo"
+        ambito = [a for a in alertas_ if not enc or a.get("instalacion_id") in (u.get("instalaciones") or {})]
+        r = dict(reconocidas=0, soluciones=0, efectivas=0, cuestionadas=0, pendientes=0, sin_solucion=0, confirmaciones=0, rechazos=0)
+        resp, resol = [], []
+        for a in alertas_:
+            bit = sorted((a.get("bitacora") or {}).values(), key=lambda b: b.get("en", 0))
+            mias = [b for b in bit if b.get("por") == u["id"]]
+            if not mias:
+                continue
+            claims = [b for b in mias if b.get("accion") in SOLUCIONES]
+            marcadas = set()
+            for q in (a.get("cuestionadas") or {}).values():            # cada cuestionamiento recae sobre su última solución informada
+                if q.get("a") == u["id"]:
+                    previas = [i for i, b in enumerate(claims) if b.get("en", 0) <= q.get("en", 0)]
+                    if previas:
+                        marcadas.add(previas[-1])
+            for i, b in enumerate(mias):
+                acc = b.get("accion", "")
+                resultado = ""
+                if acc == "reconoció":
+                    r["reconocidas"] += 1
+                    resp.append(max(0, (b["en"] - a["creada_en"]) / 60000))
+                elif acc in SOLUCIONES:
+                    r["soluciones"] += 1
+                    k = claims.index(b)
+                    if k in marcadas:
+                        r["cuestionadas"] += 1; resultado = "Cuestionada: la medición no la respaldó"
+                    elif a["estado"] == "resuelta":
+                        r["efectivas"] += 1; resultado = "Efectiva: la alerta quedó resuelta"
+                        if a.get("resuelta_en"):
+                            resol.append(max(0, (a["resuelta_en"] - a["creada_en"]) / 60000))
+                    else:
+                        r["pendientes"] += 1; resultado = "Sin resultado todavía"
+                elif acc == "no pudo solucionar":
+                    r["sin_solucion"] += 1
+                elif acc.startswith("confirmó"):
+                    r["confirmaciones"] += 1
+                elif acc.startswith("rechazó"):
+                    r["rechazos"] += 1
+                detalle.append([_local(b["en"]), u["nombre"], ROLES_TRABAJO[u["rol"]], inst.get(a.get("instalacion_id"), {}).get("nombre"),
+                                cult.get(a.get("cultivo_id") or disp.get(a.get("dispositivo_id"), {}).get("cultivo_id"), {}).get("nombre"), a.get("mensaje"), acc, b.get("nota") or None,
+                                resultado or None])
+        juzgadas = r["efectivas"] + r["cuestionadas"]
+        mias_m = [m for m in mant if m.get("creada_por") == u["id"]]
+        cerradas = [m for m in mant if m.get("completada_por") == u["id"] and m.get("estado") == "completada"]
+        salida.append({"id": u["id"], "nombre": u["nombre"], "rol": u["rol"], "rol_texto": ROLES_TRABAJO[u["rol"]],
+                       "alertas_ambito": len(ambito) if enc else None,
+                       "cumplimiento": round(100 * r["reconocidas"] / len(ambito), 1) if enc and ambito else None,
+                       "respuesta_min": round(sum(resp) / len(resp), 1) if resp else None,
+                       "efectividad": round(100 * r["efectivas"] / juzgadas, 1) if juzgadas else None,
+                       "resolucion_min": round(sum(resol) / len(resol), 1) if resol else None,
+                       "derivaciones": len(mias_m), "mantenciones_cerradas": len(cerradas),
+                       "sin_atender": sum(1 for a in ambito if not any(b.get("accion") == "reconoció" for b in (a.get("bitacora") or {}).values())) if enc else None, **r})
+    return salida, detalle, mant
+
+
+def _hojas_trabajadores(f):
+    inst, cult, disp, usr = repo.col("instalaciones"), repo.col("cultivos"), repo.col("dispositivos"), repo.col("usuarios")
+    personas, detalle, mant = desempeno_trabajadores(f)
+    cab = ["Persona", "Rol", "Alertas de su ámbito", "Reconocidas por la persona", "Cumplimiento (%)", "Respuesta media (min)", "Soluciones informadas",
+           "Efectivas", "Cuestionadas por la medición", "Sin resultado aún", "Efectividad (%)", "Resolución media (min)", "Revisiones sin solución",
+           "Confirmaciones hechas", "Rechazos hechos", "Derivaciones a mantención", "Mantenciones cerradas", "Alertas sin atender"]
+    filas = [[p["nombre"], p["rol_texto"], p["alertas_ambito"], p["reconocidas"], p["cumplimiento"], p["respuesta_min"], p["soluciones"], p["efectivas"], p["cuestionadas"],
+              p["pendientes"], p["efectividad"], p["resolucion_min"], p["sin_solucion"], p["confirmaciones"], p["rechazos"], p["derivaciones"], p["mantenciones_cerradas"],
+              p["sin_atender"]] for p in personas]
+    cab_m = ["Derivada el", "Instalación", "Cultivo", "Dispositivo", "Tipo", "Estado", "Derivada por", "Técnico", "Motivo", "Realizada el", "Realizada por", "Resultado"]
+    filas_m = [[_local(m.get("creada_en")), inst.get(m.get("instalacion_id"), {}).get("nombre"), cult.get(m.get("cultivo_id"), {}).get("nombre"),
+                disp.get(m.get("dispositivo_id"), {}).get("codigo"), TIPOS_MANT.get(m["tipo"], m["tipo"]), ESTADOS_MANT.get(m["estado"], m["estado"]),
+                usr.get(m.get("creada_por"), {}).get("nombre"), m.get("tecnico") or None, m.get("nota"), _local(m.get("completada_en")),
+                usr.get(m.get("completada_por"), {}).get("nombre"), m.get("resultado")] for m in sorted(mant, key=lambda x: x.get("creada_en", 0))]
+    return {"trabajadores": (cab, filas),
+            "trabajadores_detalle": (["Fecha y hora", "Persona", "Rol", "Instalación", "Cultivo", "Alerta", "Acción", "Comentario", "Resultado"], sorted(detalle, key=lambda x: x[0])),
+            "mantenciones": (cab_m, filas_m)}
+
+
 # ------------------------------------------------------------------ archivos
 def _fmt_csv(v):
     if v is None:
@@ -294,7 +464,7 @@ def _fmt_csv(v):
 
 
 def a_csv(hojas, tipo):
-    nombre = {"mediciones": "mediciones", "alertas": "alertas", "eventos": "eventos", "resumen": "_resumen_sensores"}[tipo]
+    nombre = {"mediciones": "mediciones", "alertas": "alertas", "eventos": "eventos", "resumen": "_resumen_sensores", "trabajadores": "trabajadores"}[tipo]
     cab, filas = hojas[nombre]
     sal = io.StringIO()
     w = csv.writer(sal, delimiter=";", lineterminator="\r\n")
@@ -331,6 +501,9 @@ def a_xlsx(hojas, f):
     ws.cell(fila, 1, "Filtros aplicados").font = Font(bold=True, size=12); fila += 1
     for k, v in meta["filtros"]:
         ws.cell(fila, 1, k).font = Font(bold=True); ws.cell(fila, 2, v); fila += 1
+    for aviso in meta.get("avisos", []):
+        c = ws.cell(fila, 1, "Nota"); c.font = Font(bold=True, color="B26A00")
+        ws.cell(fila, 2, aviso).font = Font(color="B26A00"); fila += 1
     fila += 1
 
     def tabla(ws, fila, titulo, cab, filas, anchos=None):
@@ -362,7 +535,8 @@ def a_xlsx(hojas, f):
     for j, ancho in enumerate([22, 24, 14, 26, 10, 12, 12, 12, 12, 14, 20], 1):
         ws.column_dimensions[get_column_letter(j)].width = ancho
 
-    titulos = {"mediciones": "Mediciones", "alertas": "Alertas", "eventos": "Eventos"}
+    titulos = {"mediciones": "Mediciones", "alertas": "Alertas", "eventos": "Eventos", "trabajadores": "Trabajadores",
+               "trabajadores_detalle": "Detalle de gestión", "mantenciones": "Mantenciones"}
     for clave, titulo in titulos.items():
         if clave not in hojas:
             continue

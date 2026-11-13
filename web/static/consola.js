@@ -1,7 +1,7 @@
 /* Consola de administración en /admin (equivalente al sitio de administración de Django). Solo para el rol Administrador. */
 const raiz = document.getElementById('app');
 const GRUPOS = [['Gestión de usuarios', ['usuarios']], ['Estructura de cultivos', ['instalaciones', 'cultivos', 'dispositivos', 'tipos']],
-  ['Alertas y reglas', ['reglas', 'seguimiento', 'alertas', 'eventos']], ['Informes', ['informes']], ['Sistema', ['equipos', 'parametros', 'manual', 'auditoria']]];
+  ['Alertas y reglas', ['reglas', 'seguimiento', 'mantenciones', 'alertas', 'eventos']], ['Informes', ['informes']], ['Sistema', ['equipos', 'parametros', 'manual', 'auditoria']]];
 const TODAS = [...SECCIONES, ['alertas', 'Alertas (consulta)', secAlertasTodas], ['eventos', 'Eventos (consulta)', secEventosTodos]];
 let actual = 'usuarios', zona;
 
