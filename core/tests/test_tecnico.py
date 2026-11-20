@@ -163,6 +163,11 @@ class UbicacionYEstadisticasTests(TecnicoBase):
         self.assertEqual([d["codigo"] for d in self.tec.get("/api/ubicaciones").json()], ["AQB-01"])
         self.assertEqual(self.tec.get(f"/api/dispositivos/{did}/trayecto").status_code, 200)
 
+    def test_la_interfaz_siempre_se_revalida_para_no_mostrar_pantallas_viejas(self):
+        for ruta in ("/static/comun.js", "/static/servicio.js", "/static/web.js", "/static/movil.js"):
+            self.assertEqual(Client().get(ruta)["Cache-Control"], "no-cache", ruta)
+        self.assertEqual(Client().get("/")["Cache-Control"], "no-cache")
+
     def test_clave_de_google_maps_y_csp(self):
         self.assertEqual(self.adm.get("/api/config-mapa").json(), {"google_key": ""})
         self.assertNotIn("maps.googleapis.com", self.adm.get("/api/config-mapa")["Content-Security-Policy"])

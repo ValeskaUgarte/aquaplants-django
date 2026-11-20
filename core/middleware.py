@@ -45,6 +45,10 @@ class CabecerasSeguridad:
             respuesta["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
         if request.path.startswith("/api/"):
             respuesta["Cache-Control"] = "no-store"   # las respuestas de la API nunca se guardan en caché
+        elif request.path.startswith("/static/"):
+            # Sin esto el navegador guarda comun.js, web.js… por horas o días y, tras actualizar el sistema, sigue mostrando la pantalla VIEJA
+            # (el servidor ya conoce el rol nuevo, pero la pantalla no). «no-cache» = preguntar siempre; si no cambió responde 304 (no se descarga).
+            respuesta["Cache-Control"] = "no-cache"
         if "Server" in respuesta:
             del respuesta["Server"]
         return respuesta

@@ -16,7 +16,7 @@ function armar() {
   contenido = el('main', { class: 'contenido' });
   raiz.append(el('div', { class: 'aplicacion' },
     el('aside', { class: 'lateral' }, el('div', { class: 'marca-fila' }, el('div', { class: 'marca-logo' }, logo('logo-lateral', true)),
-      campana(() => { location.hash = '#/alertas'; }, 'campana-lateral')),
+      campana((n) => { location.hash = destinoAviso(n) === 'servicio' ? (rol === 'tecnico' ? '#/' : '#/servicio') : '#/alertas'; }, 'campana-lateral')),
       el('nav', { 'aria-label': 'Principal', id: 'menu' }, enlaces.filter((e) => e[2]).map(([h, t]) => el('a', { href: h, 'data-h': h }, t)),
         rol === 'administrador' ? el('a', { href: '/admin', class: 'externo' }, 'Consola Django ↗') : null),
       el('div', { class: 'usuario' }, el('strong', {}, u.nombre), el('span', {}, ROL[rol]),
@@ -189,7 +189,7 @@ async function listaAlertas(cuerpo, instalacionId) {
     [['abiertas', 'Abiertas'], ['activa', 'Activas'], ['reconocida', 'Reconocidas'], ['revisada', 'Revisadas (falta confirmar)'], ['resuelta', 'Resueltas']].map(([v, t]) => el('option', { value: v }, t)));
   cuerpo.append(el('div', { class: 'filtros' }, el('label', { class: 'campo' }, el('span', {}, 'Estado'), sel)), msg, tablaZona);
   async function cargar(ok) {
-      if (['TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;                                  // no borrar lo que la persona está escribiendo
+      if (AQ.editando || ['TEXTAREA', 'SELECT', 'INPUT'].includes(document.activeElement.tagName)) return;                                  // no borrar lo que la persona está escribiendo
     const datos = await api.get(`/alertas${qs({ estado: est.filtro, instalacion_id: instalacionId })}`);
     vaciar(msg).append(typeof ok === 'string' ? aviso('ok', ok) : null);
     vaciar(tablaZona).append(datos.length ? el('div', { class: 'alertas-web' }, datos.map((f) => tarjetaAlertaWeb(f, cargar, !instalacionId)))

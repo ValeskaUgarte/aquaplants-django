@@ -312,7 +312,7 @@ function formularioDerivar(a, alTerminar, clase, destacado) {
       el('label', { class: 'campo' }, el('span', {}, 'Qué se pide'), accion), el('label', { class: 'campo' }, el('span', {}, 'Para'), quien), tec, nota,
       el('div', { class: 'botones-revision' }, el('button', { type: 'button', class: `${clase} boton-ok`, onclick: enviar }, 'Enviar solicitud'),
         el('button', { type: 'button', class: clase, onclick: () => { AQ.editando = false; vaciar(zona).append(boton()); } }, 'Cancelar'))));
-    AQ.editando = true;
+    AQ.editando = true; nota.focus();                          // listo para escribir; mientras el formulario está abierto, la pantalla no se refresca sola
   };
   const boton = () => el('button', { type: 'button', class: `${clase} ${destacado ? 'boton-tec' : ''}`, onclick: abrir }, '🔧 Pedir apoyo técnico (arreglo, reemplazo, retiro)');
   return zona.append(boton()), zona;
@@ -517,6 +517,8 @@ function iniciarAvisos() {
 function detenerAvisos() { clearInterval(Avisos.temporizador); Avisos.temporizador = null; Avisos.conocidas = null; Avisos.items = []; Avisos.noLeidas = 0; }
 
 /* Botón de campana con contador. `alElegir(n)` se llama al tocar una notificación (por ejemplo, para abrir las alertas). */
+/* Adónde lleva tocar un aviso: las solicitudes técnicas van al servicio técnico (el técnico no tiene pantalla de alertas). */
+const destinoAviso = (n) => (AQ.usuario.rol === 'tecnico' || ['solicitud_tecnica', 'mantencion_actualizada', 'alerta_derivada'].includes(n.tipo) ? 'servicio' : 'alertas');
 function campana(alElegir, clase = '') {
   const cuenta = el('span', { class: 'campana-cuenta oculto' }), panel = el('div', { class: 'panel-avisos oculto', role: 'dialog', 'aria-label': 'Notificaciones' });
   const boton = el('button', { type: 'button', class: `campana ${clase}`, 'aria-label': 'Notificaciones', onclick: (e) => { e.stopPropagation(); alternar(); } }, iconoCampana(), cuenta);

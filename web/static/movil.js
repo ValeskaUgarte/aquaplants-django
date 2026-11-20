@@ -16,7 +16,11 @@ function armar() {
   contenido = el('div', { class: 'contenido' });
   tabs = el('nav', { class: 'tabs' });
   raiz.append(el('header', { class: 'cabecera' }, el('h1', { class: 'marca-movil' }, logo('logo-cab'), 'AquaPlants'),
-    el('span', { class: 'cab-der' }, el('span', { class: 'nota' }, cabPunto, RELE ? 'vía Firebase' : 'en vivo'), campana(() => { cerrarTodo(); est.tab = 'alertas'; pintarTabs(); pintar(); }))), contenido, tabs);
+    el('span', { class: 'cab-der' }, el('span', { class: 'nota' }, cabPunto, RELE ? 'vía Firebase' : 'en vivo'), campana((n) => {
+      cerrarTodo(); clearInterval(est.timerTab);
+      if (!esTecnico() && destinoAviso(n) === 'servicio') { abrirPantalla('Servicio técnico', (c) => vServicioTecnico(c)); return; }
+      est.tab = esTecnico() ? 'solicitudes' : 'alertas'; est.montada = null; pintarTabs(); pintar();
+    }))), contenido, tabs);
   est.tab = esTecnico() ? 'solicitudes' : 'hoy'; est.montada = null; pintarTabs(); refrescar();
   clearInterval(temporizador); temporizador = setInterval(refrescar, RELE ? 6000 : 5000);
 }
