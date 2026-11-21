@@ -140,13 +140,29 @@ class EscenariosTests(Base):
                     self.assertIsNone(d.escenario_activo())
 
     def test_umbrales_del_prototipo_10_y_5_por_ciento_con_severidad(self):
-        """ES1: la app AquaBrain_2026 avisa con nivel de agua ≤10 % (advertencia) y ≤5 % (emergencia)."""
-        self.enviar([self.med("NIV1", "nivel_agua", 4, "%")])
+        """ES1: la app AquaBrain_2026 avisa con nivel de agua ≤10 % (advertencia) y ≤5 % (emergencia).
+        Un mismo valor que cumple varias reglas hacia el mismo lado genera UNA sola alerta: la más grave."""
         adm, _ = self.entrar("administrador")
-        por_problema = {a["problema"]: a for a in adm.get("/api/alertas").json()}
-        self.assertEqual(por_problema["Nivel de agua crítico (≤10 %)"]["severidad"], "advertencia")
-        self.assertEqual(por_problema["Emergencia de agua (≤5 %)"]["severidad"], "emergencia")
-        self.assertIn("Nivel de agua bajo", por_problema)
+        for valor, esperado, severidad in [(4, "Emergencia de agua (≤5 %)", "emergencia"), (8, "Nivel de agua crítico (≤10 %)", "advertencia"),
+                                           (30, "Nivel de agua bajo", "advertencia")]:
+            with self.subTest(valor=valor):
+                rtdb().borrar("alertas"); rtdb().borrar("alertas_abiertas"); alertas.reiniciar()
+                self.enviar([self.med("NIV1", "nivel_agua", valor, "%")])
+                por_problema = {a["problema"]: a for a in adm.get("/api/alertas").json()}
+                self.assertEqual(set(por_problema), {esperado})
+                self.assertEqual(por_problema[esperado]["severidad"], severidad)
+
+    def test_al_empeorar_el_nivel_la_alerta_menor_queda_reemplazada(self):
+        adm, _ = self.entrar("administrador")
+        rtdb().borrar("alertas"); rtdb().borrar("alertas_abiertas"); alertas.reiniciar()
+        ahora = int(time.time() * 1000)
+        self.enviar([self.med("NIV1", "nivel_agua", 30, "%", ms=ahora - 5000)])
+        self.enviar([self.med("NIV1", "nivel_agua", 3, "%", ms=ahora)])
+        por_estado = {}
+        for a in adm.get("/api/alertas").json():
+            por_estado.setdefault(a["estado"] == "resuelta", set()).add(a["problema"])
+        self.assertEqual(por_estado.get(False), {"Emergencia de agua (≤5 %)"})      # abierta: solo la más grave
+        self.assertEqual(por_estado.get(True), {"Nivel de agua bajo"})              # la menor quedó reemplazada
 
     def test_humedad_temperatura_ambiente_y_ubicacion(self):
         adm, csrf = self.entrar("administrador")

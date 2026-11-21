@@ -38,7 +38,7 @@ async function enrutar() {
   const rol = AQ.usuario.rol;
   const vistas = {
     '': () => (rol === 'tecnico' ? vServicioTecnico(zona) : vPanel()), servicio: () => vServicioTecnico(zona), ubicacion: () => vUbicacion(zona), estadisticas: () => vEstadisticas(zona),
-    instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(), seguimiento: () => (rol === 'encargado_cultivo' ? vPanel() : vSeguimiento()),
+    instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(a), seguimiento: () => (rol === 'encargado_cultivo' ? vPanel() : vSeguimiento()),
     comparacion: () => (rol === 'encargado_cultivo' ? vPanel() : vComparacion()), simulacion: () => (rol === 'administrador' ? vSimulacion() : vPanel()),
     administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : vPanel()), cuenta: () => vCuenta(), api: () => (rol === 'administrador' ? vApi(zona) : vPanel()),
   };
@@ -56,14 +56,25 @@ const encabezado = (titulo, ...extra) => el('header', { class: 'encabezado' }, e
 /*  Panel general */
 const tarjetaLectura = (l) => el('div', { class: 'lectura' }, el('span', { class: 'nm' }, l.tipo_nombre), el('strong', {}, l.valor == null ? '—' : `${fmtLectura(l.valor)} ${l.unidad}`));
 
+/* Falla más urgente del equipo: al tocarla se abre esa alerta en la sección Alertas (las demás se resumen en «+N más»). */
+function fallasWeb(c) {
+  const f = c.fallas || [];
+  if (!f.length) return null;
+  const una = f[0], mas = f.length - 1;
+  return el('div', { class: 'fallas-web' },
+    el('a', { class: `falla-web ${una.estado} enlace`, href: `#/alertas/${una.id}`, title: 'Ver esta alerta' }, el('strong', {}, iconoProblema(una), tituloAlerta(una)), iconoEstadoFalla(una.estado),
+      ` ${ETIQUETA_FALLA[una.estado] || una.estado}${una.por ? ` (${una.por})` : ''}${una.no_solucionado ? ' · aún sin solución' : ''}`, el('span', { class: 'ver-alerta' }, ' · Ver alerta ›')),
+    mas > 0 ? el('a', { class: 'falla-web mas enlace', href: '#/alertas' }, `+${mas} alerta${mas === 1 ? '' : 's'} más de este equipo · ver todas ›`) : null);
+}
 function tarjetaCultivo(c, lecturas, iid, inst = null) {
-  return el('a', { class: 'cultivo', href: `#/instalacion/${iid}` },
+  const ir = () => { location.hash = `#/instalacion/${iid}`; };
+  return el('div', { class: 'cultivo', role: 'link', tabindex: '0', title: 'Ver la instalación', onclick: (e) => { if (!e.target.closest('a,button')) ir(); },
+    onkeydown: (e) => { if (e.key === 'Enter' && !e.target.closest('a,button')) ir(); } },
     el('div', { class: 'cultivo-cab' }, el('h4', {}, c.nombre), estado(c.estado_conexion)),
     inst ? el('div', { class: 'cultivo-inst' }, ICO('instalaciones-kpi', 'ico-estado'), `${inst.nombre} · ${inst.codigo}`) : null,
     el('div', { class: 'suave' }, `Dispositivo ${c.dispositivo_codigo}`, c.alertas_abiertas ? el('strong', { class: 'alerta-n' }, ` · ${c.alertas_abiertas} alerta(s)`) : null),
     botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }),
-    (c.fallas || []).length ? el('div', { class: 'fallas-web' }, c.fallas.map((f) => el('div', { class: `falla-web ${f.estado}` },
-      el('strong', {}, iconoProblema(f), tituloAlerta(f)), iconoEstadoFalla(f.estado), ` ${ETIQUETA_FALLA[f.estado] || f.estado}${f.por ? ` (${f.por})` : ''}${f.no_solucionado ? ' · aún sin solución' : ''}`))) : null,
+    fallasWeb(c),
     c.ultima_solucion ? el('div', { class: 'falla-web resuelta' }, el('strong', {}, ICO('resueltas', 'ico-estado'), `Solucionado: ${c.ultima_solucion.problema || 'falla'}`),
         ` · ${[c.ultima_solucion.auto ? 'se resolvió sola (valor normal)' : '', c.ultima_solucion.solucion_por ? 'solución de ' + c.ultima_solucion.solucion_por : '', c.ultima_solucion.por ? 'confirmó ' + c.ultima_solucion.por : '', hace(c.ultima_solucion.en)].filter(Boolean).join(' · ')}`) : null,
     el('div', { class: 'lecturas' }, lecturas.map(tarjetaLectura)));
@@ -170,7 +181,7 @@ async function pestanaEventos(cuerpo, id) {
 /* Alertas: cada una es una tarjeta con tres zonas: lo que pasó (pasos en cajas), lo que midió el sensor (gráfico) y la gestión. */
 function tarjetaAlertaWeb(f, alTerminar, conInstalacion) {
   const dato = (k, v) => (v ? el('div', {}, el('dt', {}, k), el('dd', {}, v)) : null);
-  return el('article', { class: `alerta-web ${f.estado} sev-${f.severidad}` },
+  return el('article', { id: `alerta-${f.id}`, class: `alerta-web ${f.estado} sev-${f.severidad}` },
     el('header', { class: 'alerta-web-cab' },
       el('div', { class: 'alerta-tit' }, iconoProblema(f, 'grande'), el('div', {}, el('h3', {}, tituloAlerta(f)), el('div', { class: 'suave' }, f.mensaje))),
       el('div', { class: 'alerta-web-chips' }, estado(f.estado), f.resuelta_auto ? el('span', { class: 'etiqueta auto', title: 'El valor volvió a la normalidad y no hizo falta revisarla' }, 'Automática') : null,
@@ -183,24 +194,34 @@ function tarjetaAlertaWeb(f, alTerminar, conInstalacion) {
       el('section', { class: 'alerta-col' }, el('h4', {}, 'Qué mostró el sensor'), graficoAlerta(f))),
     f.estado !== 'resuelta' ? el('section', { class: 'alerta-gestion' }, el('h4', {}, 'Gestión'), accionesAlerta(f, alTerminar)) : null);
 }
-async function listaAlertas(cuerpo, instalacionId) {
-  const est = { filtro: 'abiertas', msg: '' };
+async function listaAlertas(cuerpo, instalacionId, destacar = null) {
+  const est = { filtro: 'abiertas', msg: '', destacar, yaMostrada: false };
   const tablaZona = el('div', {}), msg = el('div', {});
   const sel = el('select', { onchange: (e) => { est.filtro = e.target.value; cargar(); } },
     [['abiertas', 'Abiertas'], ['activa', 'Activas'], ['reconocida', 'Reconocidas'], ['revisada', 'Revisadas (falta confirmar)'], ['resuelta', 'Resueltas']].map(([v, t]) => el('option', { value: v }, t)));
   cuerpo.append(el('div', { class: 'filtros' }, el('label', { class: 'campo' }, el('span', {}, 'Estado'), sel)), msg, tablaZona);
   async function cargar(ok) {
       if (AQ.editando || ['TEXTAREA', 'SELECT', 'INPUT'].includes(document.activeElement.tagName)) return;                                  // no borrar lo que la persona está escribiendo
-    const datos = await api.get(`/alertas${qs({ estado: est.filtro, instalacion_id: instalacionId })}`);
-    vaciar(msg).append(typeof ok === 'string' ? aviso('ok', ok) : null);
+    let datos = await api.get(`/alertas${qs({ estado: est.filtro, instalacion_id: instalacionId })}`);
+    if (est.destacar && !datos.some((f) => f.id === est.destacar)) {                       // la alerta elegida puede estar en otro estado
+      for (const e of ['resuelta', 'revisada', 'reconocida', 'activa']) {
+        const otras = await api.get(`/alertas${qs({ estado: e, instalacion_id: instalacionId })}`);
+        if (otras.some((f) => f.id === est.destacar)) { est.filtro = e; sel.value = e; datos = otras; break; }
+      }
+    }
+    if (est.destacar) datos = [...datos.filter((f) => f.id === est.destacar), ...datos.filter((f) => f.id !== est.destacar)];
+    vaciar(msg).append(typeof ok === 'string' ? aviso('ok', ok) : null,
+      est.destacar && datos.some((f) => f.id === est.destacar) ? el('p', { class: 'aviso ok' }, 'Esta es la alerta que elegiste (arriba). ', el('a', { href: '#/alertas' }, 'Ver todas las alertas')) : null);
     vaciar(tablaZona).append(datos.length ? el('div', { class: 'alertas-web' }, datos.map((f) => tarjetaAlertaWeb(f, cargar, !instalacionId)))
       : el('p', { class: 'ayuda' }, 'No hay alertas con este filtro.'));
+    const elegida = est.destacar && document.getElementById(`alerta-${est.destacar}`);
+    if (elegida) { elegida.classList.add('destacada'); if (!est.yaMostrada) { est.yaMostrada = true; elegida.scrollIntoView({ block: 'start' }); } }
   }
   await cargar();
   return { refrescar: cargar, cada: 5000 };
 
 }
-async function vAlertasPagina() { const z = contenido.firstChild; vaciar(z).append(encabezado('Alertas')); const c = el('div', {}); z.append(c); return listaAlertas(c); }
+async function vAlertasPagina(id) { const z = contenido.firstChild; vaciar(z).append(encabezado('Alertas')); const c = el('div', {}); z.append(c); return listaAlertas(c, undefined, id || null); }
 
 /* Comparación (supervisor y administrador) */
 async function vComparacion() {

@@ -9,6 +9,8 @@ con pausar o desactivar la simulación (AQ_SIMULACION=0): el resto del sistema n
 """
 import importlib.util
 import json
+import random
+import os
 import logging
 import threading
 import time
@@ -47,7 +49,10 @@ class Simulacion:
         self.disponible = False
         self.activa = False
         self.intervalo = 3.0
-        self.opciones = {"anomalias": True, "datos_erroneos": True, "corte_cada_seg": 240, "corte_duracion_seg": 45}
+        # Para la demostración las fallas y los cortes los provoca quien presenta (pantalla Simulación). Se pueden volver automáticos
+        # con AQ_SIM_ANOMALIAS=1 y AQ_SIM_CORTES=1, o con los interruptores de esa pantalla.
+        self.opciones = {"anomalias": os.environ.get("AQ_SIM_ANOMALIAS", "0") == "1", "datos_erroneos": True,
+                         "corte_cada_seg": 240 if os.environ.get("AQ_SIM_CORTES", "0") == "1" else 0, "corte_duracion_seg": 45}
         self.dispositivos = []
         self.ciclos = 0
         self._hilo = None
@@ -126,12 +131,13 @@ class Simulacion:
                 self.activa = False
             elif nombre == "reanudar":
                 self.activa = True
-            elif nombre == "anomalia":
+            elif nombre in ("anomalia", "corte"):
+                # «A todos» no afecta a todos a la vez (llenaría la pantalla de alertas): se elige un solo equipo libre al azar.
+                if not codigo:
+                    libres = [d for d in objetivo if not d.escenario_activo()]
+                    objetivo = [random.choice(libres)] if libres else []
                 for d in objetivo:
-                    d.provocar_anomalia()
-            elif nombre == "corte":
-                for d in objetivo:
-                    d.provocar_corte(45)
+                    d.provocar_anomalia() if nombre == "anomalia" else d.provocar_corte(45)
             elif nombre == "escenario":
                 for d in objetivo:
                     d.provocar_escenario(escenario)

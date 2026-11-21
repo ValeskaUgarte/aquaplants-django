@@ -18,6 +18,7 @@ from core.util import ahora_ms, clave_ms, distancia_m
 PATRON_CODIGO = r"[A-Za-z0-9_-]{2,40}"
 PATRON_SENSOR = r"[A-Za-z0-9_-]{1,40}"
 PATRON_VARIABLE = r"[a-z0-9_]{2,40}"
+GRAVEDAD = {"advertencia": 0, "critica": 1, "emergencia": 2}
 OPERADORES = {">": lambda v, u: v > u, ">=": lambda v, u: v >= u, "<": lambda v, u: v < u, "<=": lambda v, u: v <= u}
 
 _lock = threading.Lock()
@@ -218,11 +219,23 @@ def procesar_lote(disp, lote, *, origen="api", actualizar_estado=True):
             continue                                  # dato fuera de orden: queda en el histórico, no altera alertas
         ultimas[s["id"]] = m["t"]
         nuevas_ultima[s["id"]] = {"ts": m["t"], "valor": m["valor"], "conexion": m["estado_conexion"]}
-        for r in reglas:
-            if not (r.get("sensor_id") == s["id"] or (not r.get("sensor_id") and r.get("tipo_sensor_id") == s["tipo_sensor_id"])):
-                continue
+        aplicables = [r for r in reglas if r.get("sensor_id") == s["id"] or (not r.get("sensor_id") and r.get("tipo_sensor_id") == s["tipo_sensor_id"])]
+        # Un mismo valor puede incumplir varias reglas hacia el mismo lado (nivel bajo, crítico y emergencia): se alerta solo la más grave
+        # (mayor severidad; a igual severidad, la de umbral más extremo) para no llenar el cultivo de alertas repetidas.
+        ganadora = {}
+        for r in aplicables:
+            if OPERADORES[r["operador"]](m["valor"], r["umbral"]):
+                baja = r["operador"] in ("<", "<=")
+                peso = (GRAVEDAD.get(r.get("severidad") or "advertencia", 0), -r["umbral"] if baja else r["umbral"])
+                if baja not in ganadora or peso > ganadora[baja][0]:
+                    ganadora[baja] = (peso, r)
+        for r in aplicables:
             clave = f"u:{r['id']}:{s['id']}"
             if OPERADORES[r["operador"]](m["valor"], r["umbral"]):
+                mayor = ganadora[r["operador"] in ("<", "<=")][1]
+                if mayor["id"] != r["id"]:
+                    alertas.normalizar(clave, mapa, f'Reemplazada por una alerta más grave del mismo sensor: «{alertas.problema_de_regla(mayor["nombre"])}».')
+                    continue
                 aid = alertas.abrir(clave, {
                     "tipo": "umbral", "problema": alertas.problema_de_regla(r["nombre"]), "instalacion_id": iid,
                     "severidad": r.get("severidad") or "advertencia", "dispositivo_id": disp["id"], "sensor_id": s["id"],

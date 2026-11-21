@@ -132,14 +132,21 @@ function chipCultivo(c) {
   return el('span', { class: `chip ${nivelCultivo(c)}` }, t);
 }
 /* Estado del dispositivo: qué falla tiene, quién la atiende, o la última solución confirmada. */
-function estadoDispositivo(c) {
+function estadoDispositivo(c, max = null) {
   const f = c.fallas || [], u = c.ultima_solucion;
   if (!f.length && !u) return null;
+  const visibles = max ? f.slice(0, max) : f, ocultas = f.length - visibles.length;
   return el('div', { class: 'fallas' },
-    f.map((x) => el('div', { class: `falla ${x.estado}` },
-      el('strong', {}, iconoProblema(x), tituloAlerta(x)), iconoEstadoFalla(x.estado), ` ${ETIQUETA_FALLA[x.estado] || x.estado}${x.por ? ` (${x.por})` : ''}${x.no_solucionado ? ' · aún sin solución' : ''}`)),
+    visibles.map((x) => el('div', { class: `falla ${x.estado} enlace`, role: 'link', tabindex: '0', onclick: (e) => { e.stopPropagation(); irAAlerta(x.id); } },
+      el('strong', {}, iconoProblema(x), tituloAlerta(x)), iconoEstadoFalla(x.estado), ` ${ETIQUETA_FALLA[x.estado] || x.estado}${x.por ? ` (${x.por})` : ''}${x.no_solucionado ? ' · aún sin solución' : ''}`,
+      el('span', { class: 'ver-alerta' }, ' · Ver alerta ›'))),
+    ocultas > 0 ? el('div', { class: 'falla mas enlace', role: 'link', tabindex: '0', onclick: (e) => { e.stopPropagation(); irAAlerta(f[0].id); } }, `+${ocultas} alerta${ocultas === 1 ? '' : 's'} más de este equipo · ver en Alertas ›`) : null,
     u ? el('div', { class: 'falla resuelta' }, el('strong', {}, ICO('resueltas', 'ico-estado'), `Solucionado: ${u.problema || 'falla'}`),
       el('div', { class: 'nota' }, [u.auto ? 'se resolvió sola (valor normal)' : '', u.solucion_por ? `solución de ${u.solucion_por}` : '', u.por ? `confirmó ${u.por}` : '', hace(u.en)].filter(Boolean).join(' · '))) : null);
+}
+/* Lleva a la pestaña Alertas mostrando esa alerta (la primera de la lista, resaltada). */
+function irAAlerta(id) {
+  cerrarTodo(); AQ.abrirAlerta = id; est.tab = 'alertas'; est.filtro = 'abiertas'; est.montada = null; pintarTabs(); pintar();
 }
 function tarjetaCultivo(c) {
   const conAlerta = c.lecturas.filter((l) => l.alertas_abiertas);
@@ -147,14 +154,14 @@ function tarjetaCultivo(c) {
     .sort((a, b) => LECTURAS_CLAVE.indexOf(a.tipo_variable) - LECTURAS_CLAVE.indexOf(b.tipo_variable));
   return el('div', { class: `tarjeta cultivo-t ${nivelCultivo(c)}`, onclick: () => abrirCultivo(c) },
     el('div', { class: 'fila' }, el('div', {}, el('h3', {}, c.nombre), el('div', { class: 'nota' }, `Dispositivo ${c.dispositivo_codigo} · ${c.instalacion}`)), chipCultivo(c)),
-    estadoDispositivo(c),
+    estadoDispositivo(c, 1),
     el('div', { class: 'mini' }, [...conAlerta, ...clave].slice(0, 4).map((l) => el('div', { class: `dato ${l.alertas_abiertas ? 'critica' : 'ok'}` },
       el('div', { class: 'n' }, l.tipo_nombre), el('div', { class: 'v' }, fmt(l.valor, 2), ' ', el('span', { class: 'u' }, l.unidad))))),
     botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }, 'boton-secundario boton-tec'),
     el('div', { class: 'nota ver-mas' }, 'Ver detalle ›'));
 }
 function tarjetaAlerta(a, alTerminar) {
-  return el('div', { class: `tarjeta alerta ${a.tipo === 'sin_comunicacion' ? 'critica' : ''} ${a.estado}` },
+  return el('div', { id: `al-${a.id}`, class: `tarjeta alerta ${a.tipo === 'sin_comunicacion' ? 'critica' : ''} ${a.estado}` },
     el('div', { class: 'fila' }, el('h3', {}, iconoProblema(a, 'grande'), tituloAlerta(a)), el('span', { class: `chip ${a.estado}` }, ETIQUETA[a.estado] || a.estado)),
     el('div', { class: 'meta' }, `${a.cultivo || a.instalacion} · ${[a.dispositivo_codigo, a.sensor_codigo].filter(Boolean).join(' · ')} · ${fechaHora(a.creada_en)}`),
     el('div', { class: 'msg' }, a.mensaje),
@@ -227,9 +234,13 @@ async function vAlertas() {
   const filtro = est.filtro;
   const lista = filtro === 'abiertas' ? datos.abiertas : await api.get(`/alertas${qs({ estado: filtro, limite: 60 })}`);
   if (est.tab !== 'alertas' || filtro !== est.filtro || pila.length || ocupado()) return;
+  const elegida = AQ.abrirAlerta; AQ.abrirAlerta = null;
+  if (elegida) lista.sort((a, b) => (b.id === elegida) - (a.id === elegida));
   vaciar(contenido).append(
     el('div', { class: 'segmento' }, FILTROS_ALERTA.map(([f, t]) => el('button', { type: 'button', class: est.filtro === f ? 'activo' : '', onclick: () => { est.filtro = f; vAlertas(); } }, t))),
     ...(lista.length ? lista.map((a) => tarjetaAlerta(a, () => vAlertas())) : [el('p', { class: 'aviso ok' }, 'No hay alertas con este filtro.')]));
+  const nodo = elegida && document.getElementById(`al-${elegida}`);
+  if (nodo) { nodo.classList.add('resaltada'); contenido.scrollTop = 0; nodo.scrollIntoView({ block: 'start' }); }
 }
 
 /*  Más / Gestión (supervisor y administrador): todo dentro de la app  */

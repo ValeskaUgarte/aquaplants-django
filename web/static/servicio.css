@@ -173,3 +173,13 @@
 
 /* Los iconos de la barra inferior no traen baldosa: sobre fondos oscuros (menú lateral y consola) llevan una clara */
 .lateral img.ico-img[src*="/tab-"],.modulo img.ico-img[src*="/tab-"] { background:#e6f6ec; border-radius:9px; padding:.18rem; box-sizing:border-box; }
+
+/* Fallas que llevan a su alerta */
+.falla.enlace,.falla-web.enlace { cursor:pointer; }
+.falla-web.enlace { display:block; text-decoration:none; color:inherit; }
+.falla.enlace:active,.falla-web.enlace:hover { filter:brightness(.96); }
+.ver-alerta { font-weight:700; color:#0b6e4f; white-space:nowrap; }
+.falla.mas,.falla-web.mas { font-size:.82rem; color:#4a5a63; background:#eef2f0; }
+.tarjeta.alerta.resaltada,.alerta-web.destacada { outline:3px solid #1565c0; outline-offset:2px; }
+.cultivo[role="link"] { cursor:pointer; }
+.cultivo[role="link"]:focus-visible { outline:3px solid #1565c0; outline-offset:2px; }
