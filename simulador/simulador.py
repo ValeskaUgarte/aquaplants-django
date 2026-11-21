@@ -68,7 +68,7 @@ class DispositivoSimulado:
     def __init__(self, *, api, id_sistema, id_dispositivo, secreto, sensores, dir_local, opciones, log=print, cultivo="", **_extra):
         self.api, self.id_sistema, self.id_dispositivo = api, id_sistema, id_dispositivo
         self.secreto, self.sensores, self.opciones, self.log = secreto, sensores, opciones, log
-        self.cultivo = cultivo          # cultivo que monitorea este dispositivo (uno por dispositivo)
+        self.cultivo = cultivo # cultivo que monitorea este dispositivo (uno por dispositivo)
         h = zlib.crc32(id_dispositivo.encode())             # posición simulada estable por dispositivo (zona de Santiago, norte/sur según la instalación)
         zona = 0.012 if "NORTE" in id_sistema.upper() else -0.012 if "SUR" in id_sistema.upper() else 0.0
         self.gps_base = (-33.4489 + zona + ((h % 1000) / 1000 - 0.5) * 0.002, -70.6693 + (((h >> 10) % 1000) / 1000 - 0.5) * 0.002)
@@ -78,7 +78,7 @@ class DispositivoSimulado:
             self.cola = json.loads(self.archivo_cola.read_text()) if self.archivo_cola.exists() else []
         except ValueError:
             self.cola = []
-        self.cola = self.cola[-MAX_COLA:]   # una cola heredada enorme (horas de corte) bloquearía la sincronización
+        self.cola = self.cola[-MAX_COLA:] # una cola heredada enorme (horas de corte) bloquearía la sincronización
         self.fallos = 0
         self.proximo_intento = 0
         self.red_caida = False
@@ -106,7 +106,7 @@ class DispositivoSimulado:
     def actualizar_red(self, ahora):
         corte_cada = self.opciones.get("corte_cada_seg", 0)
         corte_dur = self.opciones.get("corte_duracion_seg", 0)
-        if self.red_caida and ahora >= self.fin_corte:      # fin de cualquier corte, automático o manual
+        if self.red_caida and ahora >= self.fin_corte: # fin de cualquier corte, automático o manual
             self.red_caida = False
             self.proximo_corte = ahora + corte_cada * 1000 * (0.5 + random.random()) if corte_cada else 0
             self.log(f"[{self.id_dispositivo}] conectividad restablecida: se sincroniza la cola ({len(self.cola)} mediciones)")
@@ -165,14 +165,14 @@ class DispositivoSimulado:
     def generar(self, ahora):
         self.t += 1
         if (self.opciones.get("anomalias") and not self.escenario and not self.red_caida
-                and random.random() < self.opciones.get("prob_falla", 0.0015)):   # de vez en cuando aparece una falla sola (~1 por hora y equipo)
+                and random.random() < self.opciones.get("prob_falla", 0.0015)): # de vez en cuando aparece una falla sola (~1 por hora y equipo)
             self.provocar_anomalia(150)
         for s in self.sensores:
             self.cola.append({"id_sensor": s["id_sensor"], "tipo_variable": s["tipo_variable"],
                               "valor": self.valor(s), "unidad": s["unidad"],
                               "timestamp": ahora_iso(ahora), "estado_conexion": "conectado"})
             self.estadisticas["generadas"] += 1
-        if self.opciones.get("datos_erroneos") and random.random() < 0.08:   # datos defectuosos a propósito
+        if self.opciones.get("datos_erroneos") and random.random() < 0.08: # datos defectuosos a propósito
             s = self.sensores[0]
             malos = [
                 {"id_sensor": "NO_EXISTE", "tipo_variable": s["tipo_variable"], "valor": 1, "unidad": s["unidad"]},
@@ -203,11 +203,11 @@ class DispositivoSimulado:
             return e.code, {}
 
     def vaciar_cola(self, ahora):
-        for _ in range(LOTES_POR_CICLO):           # varios lotes chicos por ciclo: una cola atrasada se pone al día en segundos
+        for _ in range(LOTES_POR_CICLO): # varios lotes chicos por ciclo: una cola atrasada se pone al día en segundos
             if not self.cola or ahora < self.proximo_intento or not self._enviar_lote(ahora):
                 return
 
-    """Envía un lote. Devuelve True si el servidor lo confirmó."""
+"""Envía un lote. Devuelve True si el servidor lo confirmó."""
     def _enviar_lote(self, ahora):
         lote = self.cola[:LOTE]
         enviar = [({**m, "estado_conexion": "diferido"} if self.fallos > 0 else m) for m in lote]
@@ -220,7 +220,7 @@ class DispositivoSimulado:
                                                       "precision": round(3 + random.random() * 6, 1)}})
             if status == 200:
                 del self.cola[:len(lote)]
-                self.persistir_cola()                     # solo se borra tras confirmación del servidor
+                self.persistir_cola() # solo se borra tras confirmación del servidor
                 self.fallos = 0
                 self.proximo_intento = 0
                 self.estadisticas["aceptadas"] += j.get("aceptadas", 0)
