@@ -96,7 +96,7 @@ async function vUbicacion(zona) {
         u ? el('a', { class: 'boton-texto', href: enlaceMapa(u), target: '_blank', rel: 'noopener' }, 'Abrir en Google Maps') : null,
         u ? el('a', { class: 'boton-texto', href: enlaceRuta(u), target: '_blank', rel: 'noopener' }, 'Cómo llegar') : null,
         jefe ? el('button', { type: 'button', class: 'boton-texto', onclick: corregir }, 'Corregir ubicación') : null),
-      AQ.usuario.rol !== 'tecnico' ? formularioDerivar({ id: null, dispositivo_id: d.id, tipo: 'otro' }, async () => {}, 'boton-secundario', false) : null, msg);
+      botonPedirTecnico({ dispositivo_id: d.id }), msg);
   };
   tarjetas.append(lista.map(tarjeta));
   const vUbicacionRecargar = () => vUbicacion(zona);
@@ -105,9 +105,39 @@ async function vUbicacion(zona) {
 }
 
 /*  Solicitudes técnicas: la ve el técnico (lo suyo y la bolsa) y quienes las piden  */
+/*  Órdenes de trabajo del técnico: lo nuevo (asignado o en la bolsa), lo que está haciendo y lo ya cerrado  */
+async function vOrdenesTecnico(zona) {
+  const kp = el('div', { class: 'kpis ot-kpis' }), seg = el('div', { class: 'segmento ot-seg' }), lista = el('div', { class: 'lista-ot' });
+  let todas = [];
+  const inicioHoy = new Date(); inicioHoy.setHours(0, 0, 0, 0);
+  const grupos = () => ({ nuevas: todas.filter((m) => m.estado === 'pendiente'), curso: todas.filter((m) => m.estado === 'en_curso'),
+    historial: todas.filter((m) => ['completada', 'cancelada'].includes(m.estado)) });
+  const VACIO = { nuevas: 'No hay solicitudes nuevas. Cuando te asignen una o llegue una a la bolsa, te avisamos con una notificación.',
+    curso: 'No tienes visitas en curso. Acepta una solicitud nueva para empezar.', historial: 'Todavía no has cerrado ninguna visita.' };
+  const pintar = () => {
+    const g = grupos(), hechasHoy = g.historial.filter((m) => m.estado === 'completada' && m.completada_en && new Date(m.completada_en) >= inicioHoy).length;
+    if (AQ.abrirOrden) { const o = todas.find((m) => m.id === AQ.abrirOrden); if (o) zona.dataset.seg = o.estado === 'pendiente' ? 'nuevas' : o.estado === 'en_curso' ? 'curso' : 'historial'; }
+    if (!zona.dataset.seg) zona.dataset.seg = g.curso.length ? 'curso' : g.nuevas.length ? 'nuevas' : 'historial';
+    const actual = zona.dataset.seg, items = g[actual];
+    vaciar(kp).append(kpi('Nuevas', g.nuevas.length, 'por aceptar'), kpi('En curso', g.curso.length, 'tus visitas'), kpi('Cerradas hoy', hechasHoy));
+    vaciar(seg).append(...[['nuevas', 'Nuevas'], ['curso', 'En curso'], ['historial', 'Historial']].map(([id, t]) =>
+      el('button', { type: 'button', class: actual === id ? 'activo' : '', onclick: () => { zona.dataset.seg = id; AQ.editando = false; pintar(); } }, `${t} (${g[id].length})`)));
+    vaciar(lista).append(items.length ? items.slice(0, actual === 'historial' ? 30 : 100).map((m) => ordenTrabajo(m, () => { AQ.abrirOrden = m.id; return cargar(true); })) : el('p', { class: 'ayuda ot-vacio' }, VACIO[actual]));
+    if (AQ.abrirOrden) { const nodo = document.getElementById(`ot-${AQ.abrirOrden}`); if (nodo) { nodo.classList.add('resaltada'); nodo.scrollIntoView({ block: 'start' }); } AQ.abrirOrden = null; }
+  };
+  const cargar = async (forzar) => {
+    if (!forzar && (AQ.editando || /^(TEXTAREA|SELECT|INPUT)$/.test((document.activeElement || {}).tagName || '') || zona.querySelector('details[open]'))) return;
+    todas = await api.get('/mantenciones'); pintar();
+  };
+  vaciar(zona).append(el('p', { class: 'ayuda' }, 'Tus órdenes de trabajo: acepta una solicitud, ve al equipo con «Cómo llegar», avisa cuando llegues y cierra con tu informe. Si no puedes, devuélvela a la bolsa con el motivo.'), kp, seg, lista);
+  await cargar(true);
+  return { refrescar: () => cargar(false), cada: 15000 };
+}
+
 async function vServicioTecnico(zona) {
+  if (AQ.usuario.rol === 'tecnico') return vOrdenesTecnico(zona);
   const rol = AQ.usuario.rol, esTec = rol === 'tecnico', puedePedir = ['encargado_cultivo', 'supervisor', 'administrador'].includes(rol);
-  const filtro = zona.dataset.filtro || 'abiertas', lista = el('div', { class: 'lista-mantenciones' }), nueva = el('div', {});
+  const filtro = zona.dataset.filtro || 'abiertas', lista = el('div', { class: 'lista-mantenciones' });
   const sel = el('select', { onchange: (e) => { zona.dataset.filtro = e.target.value; cargar(true); } }, [['abiertas', 'Abiertas (pendientes y en curso)'], ['', 'Todas'], ['completada', 'Realizadas'], ['cancelada', 'Canceladas']]
     .map(([v, t]) => el('option', { value: v, selected: v === filtro }, t)));
   const cargar = async (forzar) => {
@@ -116,18 +146,10 @@ async function vServicioTecnico(zona) {
     vaciar(lista).append(datos.length ? datos.map((m) => el('article', { class: 'card-informe' }, cajaMantencion(m, () => cargar(true)))) : el('p', { class: 'ayuda' },
       esTec ? 'No tienes solicitudes. Cuando te asignen una, o llegue una a la bolsa, aparecerá aquí con aviso.' : 'No hay solicitudes con este filtro.'));
   };
-  const pedir = async () => {
-    const disp = await api.get('/dispositivos'), dsel = el('select', {}, disp.map((d) => el('option', { value: d.id }, `${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo}`)));
-    const zonaForm = el('div', {}); let formulario = null;
-    const pintar = () => { formulario = formularioDerivar({ id: null, dispositivo_id: dsel.value, tipo: 'otro' }, async () => { vaciar(nueva); await cargar(true); }, 'boton-secundario', false); vaciar(zonaForm).append(formulario); formulario.querySelector('button').click(); };
-    dsel.addEventListener('change', pintar); vaciar(nueva).append(el('div', { class: 'card-informe' }, el('h4', {}, 'Nueva solicitud sin alerta (mantención, retiro, reemplazo)'), el('label', { class: 'campo' }, el('span', {}, 'Dispositivo'), dsel), zonaForm,
-      el('button', { type: 'button', class: 'boton-texto', onclick: () => { vaciar(nueva); AQ.editando = false; } }, 'Cerrar')));
-    pintar();
-  };
   vaciar(zona).append(el('p', { class: 'ayuda' }, esTec ? 'Solicitudes que te asignaron y las que están en la bolsa (sin técnico). La primera que aceptes es tuya; si no puedes, devuélvela con el motivo.'
       : 'Pedidos de arreglo, reemplazo, retiro o mantención de los dispositivos, con su estado y quién los atiende.'),
     el('div', { class: 'barra-filtros' }, el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar'), sel),
-      puedePedir ? el('button', { type: 'button', class: 'boton-secundario', onclick: pedir }, '+ Nueva solicitud sin alerta') : null), nueva, lista);
+      botonPedirTecnico({ alTerminar: () => cargar(true) }, 'boton-secundario boton-tec', 'Pedir técnico')), lista);
   await cargar(true);
   return { refrescar: () => cargar(false), cada: 15000 };
 }

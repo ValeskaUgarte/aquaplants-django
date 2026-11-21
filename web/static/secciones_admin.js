@@ -396,9 +396,14 @@ const SECCIONES = [['usuarios', 'Usuarios', secUsuarios], ['instalaciones', 'Ins
   ['dispositivos', 'Dispositivos y sensores', secDispositivos], ['tipos', 'Tipos de sensor', secTipos], ['reglas', 'Reglas de alerta', secReglas], ['seguimiento', 'Seguimiento de alertas', secSeguimiento], ['mantenciones', 'Mantenciones', secMantenciones], ['informes', 'Informes', secInformes],
   ['equipos', 'Equipos vinculados', secEquipos], ['parametros', 'Parámetros', secParametros], ['manual', 'Carga manual', secManual], ['auditoria', 'Auditoría', secAuditoria]];
 
+/* Icono de la marca de cada sección (web/static/iconos). */
+const ICONO_SECCION = { usuarios: 'usuarios', instalaciones: 'instalaciones', cultivos: 'instalaciones', dispositivos: 'dispositivos', tipos: 'parametros', reglas: 'reglas-alerta',
+  seguimiento: 'bitacora', mantenciones: 'servicio-tecnico', alertas: 'tab-alertas', eventos: 'bitacora', informes: 'informes', equipos: 'equipos-vinculados', parametros: 'parametros',
+  manual: 'estadisticas', auditoria: 'auditoria' };
+
 /* Pantalla "Administración" de la web (pestañas). */
 async function vAdministracion(clave) {
   const z = contenido.firstChild, cuerpo = el('div', {});
-  vaciar(z).append(encabezado('Administración'), el('div', { class: 'pestanas', role: 'tablist' }, SECCIONES.map(([k, t]) => el('a', { href: `#/administracion/${k}`, role: 'tab', class: clave === k ? 'activa' : '' }, t))), cuerpo);
+  vaciar(z).append(encabezado('Administración'), el('div', { class: 'pestanas', role: 'tablist' }, SECCIONES.map(([k, t]) => el('a', { href: `#/administracion/${k}`, role: 'tab', class: clave === k ? 'activa' : '' }, ICO(ICONO_SECCION[k], 'ico-pest'), t))), cuerpo);
   await (SECCIONES.find((s) => s[0] === clave) || SECCIONES[0])[2](cuerpo);
 }

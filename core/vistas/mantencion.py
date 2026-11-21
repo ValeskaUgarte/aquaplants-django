@@ -11,7 +11,7 @@ from django.http import JsonResponse
 
 from core import cache_micro, notificaciones, repo, seguridad
 from core.http import (Campo, conflicto, exigir_acceso_instalacion, instalaciones_visibles, invalido, ip_cliente, no_encontrado, opcion,
-                       prohibido, ruta, sin_contenido, texto, validar)
+                       prohibido, ruta, sin_contenido, texto, validar, entero)
 from core.rtdb import rtdb
 from core.util import ahora_ms, clave_ms, iso
 
@@ -45,14 +45,21 @@ def mantencion_publica(m, usuarios=None, detalle=False):
            "tecnico_id": m.get("tecnico_id") or None, "tecnico_nombre": nombre(m.get("tecnico_id")),
            "creada_en": iso(m.get("creada_en")), "creada_por": nombre(m.get("creada_por")), "aceptada_en": iso(m.get("aceptada_en")),
            "completada_en": iso(m.get("completada_en")), "completada_por": nombre(m.get("completada_por")), "resultado": m.get("resultado"),
-           "resolucion": m.get("resolucion"), "resolucion_texto": RESOLUCIONES.get(m.get("resolucion")), "repuestos": m.get("repuestos")}
+           "resolucion": m.get("resolucion"), "resolucion_texto": RESOLUCIONES.get(m.get("resolucion")), "repuestos": m.get("repuestos"),
+           "progreso": m.get("progreso") or ("aceptada" if m["estado"] == "en_curso" else None), "en_camino_en": iso(m.get("en_camino_en")),
+           "en_sitio_en": iso(m.get("en_sitio_en")), "diagnostico": m.get("diagnostico"), "recomendacion": m.get("recomendacion"),
+           "minutos": m.get("minutos")}
     if detalle:
         inst, disp, cult = repo.col("instalaciones").get(m.get("instalacion_id"), {}), repo.col("dispositivos").get(m.get("dispositivo_id"), {}), repo.col("cultivos").get(m.get("cultivo_id"), {})
         sol = usr.get(m.get("creada_por"), {})
         sal.update(instalacion_id=m.get("instalacion_id"), instalacion=inst.get("nombre"), direccion=inst.get("ubicacion"), cultivo=cult.get("nombre"),
                    dispositivo_id=m.get("dispositivo_id"), dispositivo=disp.get("codigo"), dispositivo_nombre=disp.get("nombre"),
                    estado_conexion=disp.get("estado_conexion"), ubicacion=_ubicacion_publica(disp.get("ubicacion")),
-                   solicitante={"nombre": sol.get("nombre"), "email": sol.get("email")})
+                   solicitante={"nombre": sol.get("nombre"), "email": sol.get("email"), "rol": sol.get("rol")})
+        if m.get("alerta_id"):                                    # el porqué: qué alerta originó la visita
+            al = rtdb().get(f"alertas/{m['alerta_id']}") or {}
+            sal["alerta_info"] = {"id": m["alerta_id"], "mensaje": al.get("mensaje"), "severidad": al.get("severidad"), "tipo": al.get("tipo"),
+                             "estado": al.get("estado"), "problema": al.get("problema"), "valor": al.get("valor_detectado")}
     return sal
 
 
@@ -77,11 +84,11 @@ def _crear_orden(request, *, instalacion_id, dispositivo_id, cultivo_id, alerta,
     donde = f"{repo.col('cultivos').get(cultivo_id, {}).get('nombre', '')} · {disp.get('codigo', '')}".strip(" ·")
     destino = notificaciones.ids_tecnicos(tecnico_id or None, excluir=quien["id"])
     notificaciones.avisar(mapa, destino, "solicitud_tecnica", "Nueva solicitud técnica",
-                          f"{donde} — {ACCIONES[accion]} ({TIPOS[tipo]}). {nota}".strip(" —"), alerta or "", instalacion_id, critica=bool(alerta))
+                          f"{donde} — {ACCIONES[accion]} ({TIPOS[tipo]}). {nota}".strip(" —"), alerta or "", instalacion_id, critica=bool(alerta), mantencion_id=mid)
     jefes = [u["id"] for u in repo.lista("usuarios") if u.get("rol") in ("supervisor", "administrador") and u.get("activo", True) and not u.get("eliminado")
              and u["id"] != quien["id"] and u["id"] not in destino]
     notificaciones.avisar(mapa, jefes, "alerta_derivada", "Derivada a técnico / mantención",
-                          f"{donde} — {quien['nombre']} pidió: {ACCIONES[accion]} ({TIPOS[tipo]}). {nota}".strip(" —"), alerta or "", instalacion_id)
+                          f"{donde} — {quien['nombre']} pidió: {ACCIONES[accion]} ({TIPOS[tipo]}). {nota}".strip(" —"), alerta or "", instalacion_id, mantencion_id=mid)
     if alerta:
         mapa[f"alertas/{alerta}/mantencion_id"] = mid
         mapa[f"alertas/{alerta}/requiere_tecnico"] = False
@@ -133,11 +140,9 @@ def mantenciones(request):
         pub = mantencion_publica(m, usr, detalle=True)
         pub["en_bolsa"] = not m.get("tecnico_id") and m["estado"] == "pendiente"
         salida.append(pub)
-    abiertas = {m["alerta_id"] for m in salida if m["alerta_id"] and m["estado"] in ABIERTAS}
     for m in salida:
-        if m["alerta_id"] in abiertas:
-            a = rtdb().get(f"alertas/{m['alerta_id']}") or {}
-            m["alerta"] = a.get("mensaje")
+        if m["alerta_id"] and m["estado"] in ABIERTAS:
+            m["alerta"] = (m.get("alerta_info") or {}).get("mensaje")
     return JsonResponse(sorted(salida, key=lambda x: x["creada_en"] or "", reverse=True), safe=False)
 
 
@@ -179,7 +184,9 @@ def tecnicos(request):
 def mantencion_detalle(request, pk):
     """El técnico acepta, devuelve o cierra su solicitud; el supervisor y el administrador además asignan, cancelan o cierran cualquiera."""
     d = validar(request.cuerpo, {"estado": Campo(opcion("en_curso", "completada", "cancelada", "devuelta")), "nota": Campo(texto(0, 500)), "tecnico": Campo(texto(0, 120)),
-                                 "tecnico_id": Campo(texto(0, 64)), "resolucion": Campo(opcion(*RESOLUCIONES)), "repuestos": Campo(texto(0, 300))}, parcial=True)
+                                 "tecnico_id": Campo(texto(0, 64)), "resolucion": Campo(opcion(*RESOLUCIONES)), "repuestos": Campo(texto(0, 300)),
+                                 "progreso": Campo(opcion("en_camino", "en_sitio")), "diagnostico": Campo(texto(0, 600)), "recomendacion": Campo(texto(0, 500)),
+                                 "minutos": Campo(entero(0, 1440))}, parcial=True)
     m = repo.get("mantenciones", pk)
     if m is None:
         raise no_encontrado()
@@ -214,8 +221,14 @@ def mantencion_detalle(request, pk):
         if es_tec and not m.get("tecnico_id"):
             cambios["tecnico_id"] = quien["id"]
         accion = "aceptó la mantención" if es_tec else "puso la mantención en curso"
+    elif d.get("progreso"):                                       # «voy en camino» / «ya llegué»: el solicitante sabe dónde va la visita
+        if not es_tec or m["estado"] != "en_curso":
+            raise conflicto("Primero acepta la solicitud; después puedes avisar que vas en camino o que ya llegaste.")
+        cambios["progreso"] = d["progreso"]
+        cambios["en_camino_en" if d["progreso"] == "en_camino" else "en_sitio_en"] = ahora
+        accion = "va en camino al equipo" if d["progreso"] == "en_camino" else "llegó al equipo"
     elif estado == "devuelta":
-        cambios.update(estado="pendiente", tecnico_id="", aceptada_en=None)
+        cambios.update(estado="pendiente", tecnico_id="", aceptada_en=None, progreso=None, en_camino_en=None, en_sitio_en=None)
         accion = "devolvió la mantención a la bolsa de técnicos"
     elif estado in ("completada", "cancelada"):
         cambios.update(estado=estado, resultado=nota, completada_en=ahora, completada_por=quien["id"])
@@ -223,17 +236,23 @@ def mantencion_detalle(request, pk):
             cambios["resolucion"] = d["resolucion"]
         if d.get("repuestos"):
             cambios["repuestos"] = d["repuestos"]
+        for campo in ("diagnostico", "recomendacion"):             # reporte de la visita
+            if d.get(campo):
+                cambios[campo] = d[campo]
+        if d.get("minutos") is not None:
+            cambios["minutos"] = d["minutos"]
         accion = "registró la mantención como realizada" if estado == "completada" else "canceló la mantención"
     if not cambios:
         raise invalido("No hay cambios que aplicar.")
     mapa = {f"mantenciones/{pk}/{k}": v for k, v in cambios.items()}
     if m.get("alerta_id") and accion:
         mapa[f"alertas/{m['alerta_id']}/bitacora/{clave_ms(ahora)}_{secrets.token_hex(2)}"] = {
-            "por": quien["id"], "rol": quien["rol"], "accion": accion, "nota": nota, "en": ahora}
+            "por": quien["id"], "rol": quien["rol"], "accion": accion,
+            "nota": (f"Diagnóstico: {d['diagnostico']}. " if d.get("diagnostico") and estado == "completada" else "") + nota, "en": ahora}
     if accion:                                                    # quien pidió la mantención y los jefes se enteran
         interesados = [m.get("creada_por")] + [u["id"] for u in repo.lista("usuarios") if u.get("rol") in ("supervisor", "administrador") and u.get("activo", True)]
         notificaciones.avisar(mapa, [x for x in interesados if x and x != quien["id"]], "mantencion_actualizada", "Solicitud técnica actualizada",
-                              f"{quien['nombre']} {accion}. {nota}".strip(), m.get("alerta_id") or "", m["instalacion_id"])
+                              f"{quien['nombre']} {accion}. {nota}".strip(), m.get("alerta_id") or "", m["instalacion_id"], mantencion_id=pk)
     try:
         rtdb().update(mapa)
     except Exception:

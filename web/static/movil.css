@@ -279,3 +279,19 @@ input.corto { width:7rem; padding:.5rem .6rem; }
 .mantencion input,.mantencion textarea,.derivar-form input,.derivar-form select,.derivar-form textarea { width:100%; box-sizing:border-box; }
 .derivar { margin-top:.5rem; }
 .derivar-form { display:grid; gap:.45rem; background:#f5f7f8; border:1px solid #dde3e7; border-radius:8px; padding:.6rem .7rem; }
+/* Botones que comparte el código con la web (comun.js): en la app se ven igual que los .boton */
+.boton-secundario { font:inherit; font-weight:700; padding:.8rem 1rem; border:0; border-radius:12px; background:#e3ece7; color:var(--texto); width:100%; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; }
+.boton-secundario.boton-ok { background:var(--ok); color:#fff; }
+.boton-secundario.boton-mal { background:#fff; color:var(--crit); border:2px solid var(--crit); }
+.boton-secundario:disabled { opacity:.5; }
+.boton-texto { background:none; border:0; color:var(--acento); font:inherit; padding:.4rem .2rem; text-decoration:underline; }
+.derivar { margin-top:.5rem; } .acciones-alerta .botones-revision button { width:100%; }
+
+/* Iconos de la marca: barra inferior, menú Más/Gestión y botones */
+.tabs button .ico-tab { width:1.7rem; height:1.7rem; object-fit:contain; opacity:.55; filter:grayscale(.35); transition:opacity .15s; }
+.tabs button.activo .ico-tab { opacity:1; filter:none; }
+.tabs button.activo::after { content:''; position:absolute; bottom:.15rem; left:28%; right:28%; height:3px; border-radius:3px; background:var(--marca); }
+.item-ico-img { width:3.2rem; height:2.8rem; object-fit:contain; flex:none; }
+.pedir-rapido { display:flex; align-items:center; gap:.7rem; width:100%; margin:.2rem 0 .8rem; padding:.7rem .9rem; border:1px solid #b7dfe3; background:#e8f6f7; border-radius:14px; font:inherit; text-align:left; color:var(--texto); }
+.pedir-rapido strong { display:block; } .pedir-rapido .nota { font-size:.82rem; }
+.cultivo-t .btn-pedir-tec { margin-top:.5rem; width:100%; font-size:.9rem; padding:.55rem .8rem; }

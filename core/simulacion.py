@@ -53,14 +53,14 @@ class Simulacion:
         self._hilo = None
         self._lock = threading.Lock()
 
-    """Alguien dio la solución: el dispositivo simulado recupera la conexión y deja de producir valores anómalos."""
-    def reparar(self, codigo_dispositivo):       
+    def reparar(self, codigo_dispositivo):
+        """Alguien dio la solución: el dispositivo simulado recupera la conexión y deja de producir valores anómalos."""
         with self._lock:
             for d in self.dispositivos:
                 if d.id_dispositivo == codigo_dispositivo:
                     d.reparar()
 
-    # arranque
+    # ------------------------------------------------------------ arranque
     def iniciar(self, api: str, intervalo: float = 3.0, activa: bool = True):
         if self._hilo and self._hilo.is_alive():
             return
@@ -103,7 +103,7 @@ class Simulacion:
                     self.ciclos += 1
             time.sleep(max(0.2, self.intervalo - (time.time() - inicio)))
 
-    #  control (web)
+    # ------------------------------------------------------------ control (web)
     def estado(self):
         with self._lock:
             return {

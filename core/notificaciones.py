@@ -42,18 +42,19 @@ def ids_tecnicos(tecnico_id=None, excluir=None):
     return [u["id"] for u in repo.lista("usuarios") if u.get("rol") == "tecnico" and u.get("activo", True) and not u.get("eliminado") and u["id"] != excluir]
 
 
-def avisar(mapa, uids, tipo, titulo, mensaje, alerta_id="", instalacion_id="", critica=False):
+def avisar(mapa, uids, tipo, titulo, mensaje, alerta_id="", instalacion_id="", critica=False, mantencion_id=""):
     """Aviso genérico a una lista de usuarios (lo usan las solicitudes técnicas)."""
-    _agregar(mapa, list(dict.fromkeys(uids)), tipo, titulo, mensaje, alerta_id, instalacion_id, critica=critica)
+    _agregar(mapa, list(dict.fromkeys(uids)), tipo, titulo, mensaje, alerta_id, instalacion_id, critica=critica, mantencion_id=mantencion_id)
 
 
-def _agregar(mapa, uids, tipo, titulo, mensaje, alerta_id, instalacion_id="", critica=False):
+def _agregar(mapa, uids, tipo, titulo, mensaje, alerta_id, instalacion_id="", critica=False, mantencion_id=""):
     ts = ahora_ms()
     pendientes = []
     for uid in uids:
         nid = f"{clave_ms(ts)}_{secrets.token_hex(3)}"
         mapa[f"notificaciones/{uid}/{nid}"] = {"tipo": tipo, "titulo": titulo, "mensaje": mensaje, "alerta_id": alerta_id,
-                                               "instalacion_id": instalacion_id, "critica": bool(critica), "creada_en": ts, "leida": False}
+                                               "instalacion_id": instalacion_id, "critica": bool(critica), "creada_en": ts, "leida": False,
+                                               **({"mantencion_id": mantencion_id} if mantencion_id else {})}
         pendientes.append(uid)
     if pendientes:
         _por_enviar.append((pendientes, titulo, mensaje, alerta_id))

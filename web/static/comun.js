@@ -252,9 +252,127 @@ function avisosAlerta(a, alTerminar, clase) {
 }
 const enlaceMapa = (u) => `https://www.google.com/maps?q=${u.lat},${u.lng}`;
 const enlaceRuta = (u) => `https://www.google.com/maps/dir/?api=1&destination=${u.lat},${u.lng}`;
+/*  Iconos de la marca (web/static/iconos/*.png) y «Pedir técnico»  */
+const ICO = (nombre, clase = '') => el('img', { class: `ico-img ${clase}`.trim(), src: `/static/iconos/${nombre}.png`, alt: '', draggable: 'false' });
+const PUEDEN_PEDIR_TECNICO = ['encargado_cultivo', 'supervisor', 'administrador'];
+const puedePedirTecnico = () => !!AQ.usuario && PUEDEN_PEDIR_TECNICO.includes(AQ.usuario.rol);
+/* Ventana para pedir un técnico: con una alerta (`alerta`), para un equipo concreto (`dispositivo_id`) o dejando elegir el equipo.
+   La usan el encargado de cultivo, el supervisor y el administrador, tanto en la web como en la app. */
+async function pedirTecnico({ dispositivo_id = null, alerta = null, alTerminar = async () => {} } = {}) {
+  if (!puedePedirTecnico()) return;
+  const cuerpo = el('div', { class: 'modal-hoja' }), fondo = el('div', { class: 'modal-fondo', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pedir un técnico' }, cuerpo);
+  const cerrar = () => { AQ.editando = false; fondo.remove(); };
+  fondo.addEventListener('click', (e) => { if (e.target === fondo) cerrar(); });
+  document.body.append(fondo);
+  const cabecera = el('div', { class: 'modal-cab' }, ICO('servicio-tecnico', 'ico-modal'), el('div', {}, el('h3', {}, 'Pedir un técnico'),
+    el('p', { class: 'suave' }, 'El técnico recibe un aviso con el motivo, dónde está el equipo y cómo llegar.')), el('button', { type: 'button', class: 'modal-x', 'aria-label': 'Cerrar', onclick: cerrar }, '✕'));
+  vaciar(cuerpo).append(cabecera, el('p', { class: 'suave' }, 'Cargando equipos…'));
+  try {
+    const zonaForm = el('div', {}), terminar = async (m) => { cerrar(); await alTerminar(m); };
+    const formulario = (base) => formularioDerivar(base, terminar, 'boton-secundario', false, { abierto: true, alCancelar: cerrar });
+    if (alerta) { vaciar(cuerpo).append(cabecera, el('p', { class: 'ot-alerta' }, alerta.mensaje || 'Alerta abierta'), formulario(alerta)); return; }
+    let selector = null;
+    if (dispositivo_id) selector = el('input', { type: 'hidden', value: dispositivo_id });
+    else {
+      const disp = await api.get('/dispositivos');
+      if (!disp.length) { vaciar(cuerpo).append(cabecera, aviso('error', 'No tienes dispositivos asignados para pedir una visita.')); return; }
+      selector = el('select', { onchange: () => pintar() }, disp.map((d) => el('option', { value: d.id }, `${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo}`)));
+    }
+    const pintar = () => vaciar(zonaForm).append(formulario({ id: null, dispositivo_id: selector.value, tipo: 'otro' }));
+    vaciar(cuerpo).append(cabecera, dispositivo_id ? null : el('label', { class: 'campo' }, el('span', {}, '¿Qué equipo necesita al técnico?'), selector), zonaForm);
+    pintar();
+  } catch (e) { vaciar(cuerpo).append(cabecera, aviso('error', mensajeError(e))); }
+}
+/* Botón «Pedir técnico» (null si el rol no puede pedirlo). */
+function botonPedirTecnico(ctx = {}, clase = 'boton-secundario boton-tec', etiqueta = 'Pedir técnico') {
+  if (!puedePedirTecnico()) return null;
+  return el('button', { type: 'button', class: `${clase} btn-pedir-tec`, onclick: (e) => { e.preventDefault(); e.stopPropagation(); pedirTecnico(ctx); } }, ICO('servicio-tecnico', 'ico-btn'), etiqueta);
+}
+
+/*  Orden de trabajo del técnico: por qué lo llamaron, adónde ir, avance de la visita y el informe con el que se cierra  */
+const PASOS_OT = ['Recibida', 'Aceptada', 'En camino', 'En el lugar', 'Informe'];
+const pasoOT = (m) => (m.estado === 'completada' ? 5 : m.estado === 'pendiente' ? 1 : { aceptada: 2, en_camino: 3, en_sitio: 4 }[m.progreso || 'aceptada']);
+const CONEXION_TXT = { en_linea: 'en línea', sin_comunicacion: 'sin comunicación', sin_datos: 'sin datos' };
+function informeVisita(m) {
+  if (!m.resultado && !m.diagnostico) return null;
+  const fila = (t, v) => (v ? el('div', { class: 'ot-fila' }, el('span', { class: 'ot-et' }, t), el('span', {}, v)) : null);
+  return el('div', { class: 'ot-informe' }, el('strong', {}, m.estado === 'cancelada' ? 'Solicitud cancelada' : 'Informe de la visita'),
+    fila('Resultado', m.resolucion_texto), fila('Qué se encontró', m.diagnostico), fila(m.estado === 'cancelada' ? 'Motivo' : 'Qué se hizo', m.resultado), fila('Repuestos', m.repuestos),
+    fila('Tiempo en el lugar', m.minutos != null ? `${m.minutos} min` : null), fila('Recomendación', m.recomendacion),
+    fila('Cerró', m.completada_por ? `${m.completada_por} · ${fechaHora(m.completada_en)}` : null));
+}
+function ordenTrabajo(m, alTerminar) {
+  const yo = AQ.usuario.id, abierta = ['pendiente', 'en_curso'].includes(m.estado), msg = el('div', {}), al = m.alerta_info, sol = m.solicitante || {};
+  const edita = (e) => { AQ.editando = e.target.value.length > 0; };
+  const mover = async (cuerpo, ok) => {
+    try { await api.patch(`/mantenciones/${m.id}`, cuerpo); AQ.editando = false; mostrarAviso(ok, 'ok'); await alTerminar(ok); }
+    catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); mostrarAviso(mensajeError(e), 'error'); }
+  };
+  const btn = (txt, f, extra = '', icono = null) => el('button', { type: 'button', class: `ot-btn ${extra}`.trim(), onclick: f }, icono ? ICO(icono, 'ico-btn') : null, txt);
+  const cabecera = el('header', { class: 'ot-cab' }, ICO('servicio-tecnico', 'ico-ot'),
+    el('div', { class: 'ot-titulo' }, el('strong', {}, m.tipo_texto), el('span', { class: 'suave' }, m.accion_texto || '')),
+    el('div', { class: 'ot-chips' }, el('span', { class: `ot-chip e-${m.estado}` }, m.estado_texto),
+      m.en_bolsa ? el('span', { class: 'ot-chip bolsa' }, 'Disponible para cualquier técnico') : m.tecnico_id === yo && abierta ? el('span', { class: 'ot-chip mia' }, 'Asignada a ti') : null));
+  const paso = pasoOT(m);
+  const pasos = m.estado === 'cancelada' ? null : el('ol', { class: 'ot-pasos' }, PASOS_OT.map((t, i) => el('li', { class: i + 1 < paso ? 'hecho' : i + 1 === paso ? 'actual' : '' }, el('span', { class: 'ot-punto' }, i + 1 < paso ? '✓' : i + 1), t)));
+  const porque = el('section', { class: 'ot-bloque' }, el('h5', {}, '¿Por qué te llamaron?'),
+    al && al.mensaje ? el('p', { class: 'ot-alerta' }, el('span', { class: `ot-chip sev-${al.severidad || 'advertencia'}` }, al.severidad === 'critica' ? 'Crítica' : 'Advertencia'), ' ', al.mensaje)
+      : el('p', { class: 'suave' }, 'Pedido directo, sin alerta: mantención, retiro o reemplazo del equipo.'),
+    m.nota ? el('blockquote', { class: 'ot-nota' }, m.nota) : null,
+    el('p', { class: 'suave ot-quien' }, `Lo pidió ${sol.nombre || m.creada_por || '—'}${sol.rol && ROL[sol.rol] ? ` (${ROL[sol.rol]})` : ''} · ${fechaHora(m.creada_en)}`,
+      sol.email ? [' · ', el('a', { href: `mailto:${sol.email}` }, sol.email)] : null));
+  const u = m.ubicacion;
+  const donde = el('section', { class: 'ot-bloque' }, el('h5', {}, 'Adónde ir'),
+    el('p', { class: 'ot-lugar' }, [m.instalacion, m.cultivo].filter(Boolean).join(' · ') || 'Sin instalación'),
+    el('p', { class: 'suave' }, `Dispositivo ${m.dispositivo || '—'}${m.dispositivo_nombre ? ` (${m.dispositivo_nombre})` : ''}${CONEXION_TXT[m.estado_conexion] ? ` · ${CONEXION_TXT[m.estado_conexion]}` : ''}`),
+    m.direccion ? el('p', {}, `Dirección: ${m.direccion}`) : null,
+    u ? el('div', { class: 'ot-botones' }, el('a', { class: 'ot-btn primario', href: enlaceRuta(u), target: '_blank', rel: 'noopener' }, ICO('ubicacion', 'ico-btn'), 'Cómo llegar'),
+      el('a', { class: 'ot-btn', href: enlaceMapa(u), target: '_blank', rel: 'noopener' }, 'Ver en el mapa'))
+      : el('p', { class: 'suave' }, 'El equipo todavía no informó su posición: guíate por la dirección.'),
+    u ? el('p', { class: 'suave' }, `Posición ${u.origen === 'manual' ? 'indicada a mano' : 'del GPS'}, ${hace(u.actualizada_en)}.`) : null);
+  const nodo = el('article', { class: `ot ${m.estado}`, id: `ot-${m.id}` }, cabecera, pasos, porque, donde);
+  if (!abierta) return nodo.append(informeVisita(m)), nodo;
+  const devolver = () => {                                       // devolver a la bolsa exige decir por qué
+    const motivo = el('textarea', { rows: 2, maxlength: 500, placeholder: 'Por qué no puedes atenderla (lo lee quien la pidió)', oninput: edita });
+    vaciar(msg).append(el('div', { class: 'ot-devolver' }, motivo, el('div', { class: 'ot-botones' },
+      btn('Devolver a la bolsa', () => { if (motivo.value.trim().length < 5) { mostrarAviso('Cuenta el motivo (al menos 5 letras).', 'error'); motivo.focus(); return; }
+        mover({ estado: 'devuelta', nota: motivo.value.trim() }, 'Devuelta a la bolsa de técnicos'); }, 'mal'), btn('No, volver', () => { AQ.editando = false; vaciar(msg); }))));
+    AQ.editando = true; motivo.focus();
+  };
+  if (m.estado === 'pendiente') {
+    nodo.append(el('div', { class: 'ot-acciones' }, btn('Aceptar la solicitud', () => mover({ estado: 'en_curso' }, 'Solicitud aceptada: ahora puedes ir al equipo'), 'primario grande', 'servicio-tecnico'),
+      m.tecnico_id === yo ? btn('No puedo atenderla', devolver, 'texto') : null), msg);
+    return nodo;
+  }
+  const prog = m.progreso || 'aceptada';
+  const siguiente = prog === 'aceptada' ? btn('Voy en camino', () => mover({ progreso: 'en_camino' }, 'Avisaste que vas en camino'), 'primario grande', 'ubicacion')
+    : prog === 'en_camino' ? btn('Ya llegué al equipo', () => mover({ progreso: 'en_sitio' }, 'Avisaste que llegaste'), 'primario grande', 'dispositivos') : null;
+  const diag = el('textarea', { rows: 3, maxlength: 600, placeholder: 'Qué encontraste (causa de la falla)', oninput: edita });
+  const trabajo = el('textarea', { rows: 3, maxlength: 500, placeholder: 'Qué hiciste para resolverlo', oninput: edita });
+  const res = el('select', {}, el('option', { value: '' }, 'Cómo quedó…'), RESOLUCIONES.map(([v, t]) => el('option', { value: v }, t)));
+  const rep = el('input', { type: 'text', maxlength: 300, placeholder: 'Repuestos o materiales usados (opcional)' });
+  const min = el('input', { type: 'number', inputmode: 'numeric', min: 0, max: 1440, placeholder: 'Minutos en el lugar (opcional)' });
+  const rec = el('textarea', { rows: 2, maxlength: 500, placeholder: 'Recomendación para el encargado (opcional)', oninput: edita });
+  const enviar = () => {
+    if (diag.value.trim().length < 5) { mostrarAviso('Cuenta qué encontraste (al menos 5 letras).', 'error'); diag.focus(); return; }
+    if (trabajo.value.trim().length < 5) { mostrarAviso('Cuenta qué hiciste (al menos 5 letras).', 'error'); trabajo.focus(); return; }
+    if (!res.value) { mostrarAviso('Indica cómo quedó el equipo.', 'error'); res.focus(); return; }
+    const minutos = min.value === '' ? null : Number(min.value);
+    if (minutos !== null && !(Number.isInteger(minutos) && minutos >= 0 && minutos <= 1440)) { mostrarAviso('Los minutos deben ser un número entero entre 0 y 1440.', 'error'); min.focus(); return; }
+    mover({ estado: 'completada', diagnostico: diag.value.trim(), nota: trabajo.value.trim(), resolucion: res.value, repuestos: rep.value.trim(),
+      ...(rec.value.trim() ? { recomendacion: rec.value.trim() } : {}), ...(minutos !== null ? { minutos } : {}) }, 'Informe enviado: la visita quedó cerrada');
+  };
+  const campoOT = (t, c) => el('label', { class: 'ot-campo' }, el('span', {}, t), c);
+  const informe = el('details', { class: 'ot-form', open: prog === 'en_sitio' }, el('summary', {}, 'Informe de la visita y cierre'),
+    campoOT('Qué encontraste', diag), campoOT('Qué hiciste', trabajo), campoOT('Resultado', res), campoOT('Repuestos', rep), campoOT('Tiempo en el lugar', min), campoOT('Recomendación', rec),
+    el('div', { class: 'ot-botones' }, btn('Enviar informe y cerrar', enviar, 'ok grande')));
+  nodo.append(el('div', { class: 'ot-acciones' }, siguiente), informe, el('div', { class: 'ot-acciones' }, btn('Devolver a la bolsa', devolver, 'texto')), msg);
+  return nodo;
+}
 /* Una solicitud técnica con todo lo que hace falta para actuar. Los controles dependen del rol:
    técnico = aceptar, cerrar con el resultado o devolver a la bolsa; supervisor y administrador = además asignar, poner en curso o cancelar. */
 function cajaMantencion(m, alTerminar, clase = 'boton-secundario') {
+  if (AQ.usuario.rol === 'tecnico') return ordenTrabajo(m, alTerminar);
   const abierta = ['pendiente', 'en_curso'].includes(m.estado), rol = AQ.usuario.rol, esTec = rol === 'tecnico', jefe = ['supervisor', 'administrador'].includes(rol);
   const enlaces = m.ubicacion ? el('div', { class: 'enlaces-mapa' }, el('a', { href: enlaceMapa(m.ubicacion), target: '_blank', rel: 'noopener' }, '📍 Ver en Google Maps'), ' · ',
     el('a', { href: enlaceRuta(m.ubicacion), target: '_blank', rel: 'noopener' }, 'Cómo llegar'), el('span', { class: 'suave' }, ` · posición ${m.ubicacion.origen === 'manual' ? 'indicada a mano' : 'del GPS'}, ${hace(m.ubicacion.actualizada_en)}`))
@@ -267,8 +385,8 @@ function cajaMantencion(m, alTerminar, clase = 'boton-secundario') {
       + `${m.tecnico_nombre ? ` · Técnico: ${m.tecnico_nombre}` : m.en_bolsa ? ' · En la bolsa: la puede tomar cualquier técnico' : ''}${m.tecnico ? ` · ${m.tecnico}` : ''}`),
     m.alerta ? el('div', { class: 'meta' }, el('strong', {}, 'Alerta: '), m.alerta) : null,
     m.nota ? el('div', { class: 'paso-texto sin-sangria' }, m.nota) : null,
-    m.resultado ? el('div', { class: 'paso-texto sin-sangria' }, el('strong', {}, `${m.resolucion_texto || 'Resultado'}: `), m.resultado, m.repuestos ? ` · Repuestos: ${m.repuestos}` : '',
-      m.completada_por ? ` (${m.completada_por}, ${fechaHora(m.completada_en)})` : '') : null);
+    m.estado === 'en_curso' && m.progreso && m.progreso !== 'aceptada' ? el('div', { class: 'meta' }, m.progreso === 'en_camino' ? `El técnico va en camino (${hace(m.en_camino_en)}).` : `El técnico ya llegó al equipo (${hace(m.en_sitio_en)}).`) : null,
+    informeVisita(m));
   if (!abierta || !(esTec || jefe)) return caja;
   const msg = el('div', {});
   const mover = async (cuerpo, ok) => { try { await api.patch(`/mantenciones/${m.id}`, cuerpo); AQ.editando = false; mostrarAviso(ok, 'ok'); await alTerminar(ok); } catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); } };
@@ -293,7 +411,7 @@ function cajaMantencion(m, alTerminar, clase = 'boton-secundario') {
   return caja.append(msg), caja;
 }
 /* Derivar una alerta (o pedir directamente un arreglo, retiro, reemplazo o mantención) al técnico o servicio técnico. */
-function formularioDerivar(a, alTerminar, clase, destacado) {
+function formularioDerivar(a, alTerminar, clase, destacado, { abierto = false, alCancelar = null } = {}) {
   const zona = el('div', { class: 'derivar' });
   const abrir = () => {
     const tipo = el('select', {}, TIPOS_MANTENCION.map(([v, t]) => el('option', { value: v, selected: v === (a.tipo === 'sin_comunicacion' ? 'tecnico' : 'otro') }, t)));
@@ -311,11 +429,12 @@ function formularioDerivar(a, alTerminar, clase, destacado) {
     vaciar(zona).append(el('div', { class: 'derivar-form' }, el('strong', {}, 'Pedir apoyo técnico'), el('label', { class: 'campo' }, el('span', {}, 'Qué falla'), tipo),
       el('label', { class: 'campo' }, el('span', {}, 'Qué se pide'), accion), el('label', { class: 'campo' }, el('span', {}, 'Para'), quien), tec, nota,
       el('div', { class: 'botones-revision' }, el('button', { type: 'button', class: `${clase} boton-ok`, onclick: enviar }, 'Enviar solicitud'),
-        el('button', { type: 'button', class: clase, onclick: () => { AQ.editando = false; vaciar(zona).append(boton()); } }, 'Cancelar'))));
+        el('button', { type: 'button', class: clase, onclick: () => { AQ.editando = false; if (alCancelar) alCancelar(); else vaciar(zona).append(boton()); } }, 'Cancelar'))));
     AQ.editando = true; nota.focus();                          // listo para escribir; mientras el formulario está abierto, la pantalla no se refresca sola
   };
-  const boton = () => el('button', { type: 'button', class: `${clase} ${destacado ? 'boton-tec' : ''}`, onclick: abrir }, '🔧 Pedir apoyo técnico (arreglo, reemplazo, retiro)');
-  return zona.append(boton()), zona;
+  const boton = () => el('button', { type: 'button', class: `${clase} ${destacado ? 'boton-tec' : ''}`, onclick: abrir }, ICO('servicio-tecnico', 'ico-btn'), 'Pedir técnico');
+  if (abierto) abrir(); else zona.append(boton());
+  return zona;
 }
 
 const fechaHora = (iso) => (iso ? new Date(iso).toLocaleString('es-CL') : '—');

@@ -11,3 +11,8 @@ body.consola { background: #f8f8f8; }
 .modulo a:hover { background: #f1f7fa; } .modulo a.activo { background: #e1eef5; font-weight: 700; color: #264b5d; }
 .zona-consola { padding: 1.2rem 1.6rem; max-width: 1300px; } .zona-consola > h2 { color: #666; font-weight: 300; font-size: 1.5rem; margin-bottom: 1rem; }
 @media (max-width: 800px) { .cuerpo-consola { grid-template-columns: 1fr; } }
+
+/* Iconos de la marca */
+.ico-img { display:inline-block; object-fit:contain; vertical-align:middle; }
+.modulo a { display:flex; align-items:center; gap:.5rem; }
+.ico-menu { width:1.7rem; height:1.5rem; }

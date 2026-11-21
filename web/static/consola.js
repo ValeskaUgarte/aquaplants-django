@@ -8,7 +8,7 @@ let actual = 'usuarios', zona;
 function pintarMenu(nav) {
   vaciar(nav);
   for (const [grupo, claves] of GRUPOS) nav.append(el('div', { class: 'modulo' }, el('h3', {}, grupo),
-    claves.map((k) => el('a', { href: `#${k}`, class: k === actual ? 'activo' : '' }, TODAS.find((s) => s[0] === k)[1]))));
+    claves.map((k) => el('a', { href: `#${k}`, class: k === actual ? 'activo' : '' }, ICO(ICONO_SECCION[k], 'ico-menu'), TODAS.find((s) => s[0] === k)[1]))));
 }
 async function mostrar(nav) {
   actual = (location.hash || '#usuarios').slice(1);

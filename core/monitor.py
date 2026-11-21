@@ -9,8 +9,9 @@ from core.util import ahora_ms, clave_ms, ms_a_iso
 log = logging.getLogger("aquaplants.monitor")
 _ultima_depuracion = 0.0
 
-"""Marca como sin comunicación a los dispositivos en línea que no reportan dentro del plazo configurado."""
-def revisar_dispositivos() -> int:    
+
+def revisar_dispositivos() -> int:
+    """Marca como sin comunicación a los dispositivos en línea que no reportan dentro del plazo configurado."""
     minutos = max(1, repo.parametro_int("minutos_sin_comunicacion", 5))
     limite, ahora, mapa, caidos = ahora_ms() - minutos * 60_000, ahora_ms(), {}, 0
     repo.invalidar("dispositivos")
@@ -39,10 +40,11 @@ def revisar_dispositivos() -> int:
         cache_micro.limpiar()
     return caidos
 
-"""Una solución informada («quedó solucionado») debe verse en la medición. Si pasó el plazo y el dato sigue igual de mal, la alerta
+
+def revisar_soluciones() -> int:
+    """Una solución informada («quedó solucionado») debe verse en la medición. Si pasó el plazo y el dato sigue igual de mal, la alerta
     vuelve a revisión, queda marcada como «solución no confirmada por la medición», se deja en la auditoría y se avisa; para un corte de
     comunicación se recomienda además derivar a un técnico. Si ya se normalizó, la alerta se resolvió sola y aquí no hay nada que hacer."""
-def revisar_soluciones() -> int:   
     from core.vistas.operacion import causa_presente
     ahora, mapa, n, usr = ahora_ms(), {}, 0, repo.col("usuarios")
     pendientes = []
@@ -78,8 +80,9 @@ def revisar_soluciones() -> int:
         cache_micro.limpiar()
     return n
 
-"""Una vez por hora: sesiones vencidas y, si `retencion_historicos_dias` > 0, mediciones antiguas."""
+
 def depurar():
+    """Una vez por hora: sesiones vencidas y, si `retencion_historicos_dias` > 0, mediciones antiguas."""
     global _ultima_depuracion
     if time.time() - _ultima_depuracion < 3600:
         return

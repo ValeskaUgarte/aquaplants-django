@@ -19,6 +19,7 @@ function armar() {
     el('span', { class: 'cab-der' }, el('span', { class: 'nota' }, cabPunto, RELE ? 'vía Firebase' : 'en vivo'), campana((n) => {
       cerrarTodo(); clearInterval(est.timerTab);
       if (!esTecnico() && destinoAviso(n) === 'servicio') { abrirPantalla('Servicio técnico', (c) => vServicioTecnico(c)); return; }
+      AQ.abrirOrden = n.mantencion_id || null;
       est.tab = esTecnico() ? 'solicitudes' : 'alertas'; est.montada = null; pintarTabs(); pintar();
     }))), contenido, tabs);
   est.tab = esTecnico() ? 'solicitudes' : 'hoy'; est.montada = null; pintarTabs(); refrescar();
@@ -26,13 +27,13 @@ function armar() {
 }
 function pintarTabs() {
   const n = datos ? datos.panel.totales.alertas_abiertas : 0;
-  const pestanas = esTecnico() ? [['solicitudes', '🔧', 'Solicitudes'], ['ubicacion', '📍', 'Equipos'], ['estadisticas', '📈', 'Resumen']]
-    : [['hoy', '🏠', 'Hoy'], ['cultivos', '🌿', 'Cultivos'], ['alertas', '🔔', 'Alertas'], ['mas', '🧰', esAdmin() ? 'Gestión' : 'Más']];
-  pestanas.push(['cuenta', '👤', 'Cuenta']);
+  const pestanas = esTecnico() ? [['solicitudes', 'servicio-tecnico', 'Órdenes'], ['ubicacion', 'ubicacion', 'Equipos'], ['estadisticas', 'estadisticas', 'Resumen']]
+    : [['hoy', 'tab-hoy', 'Hoy'], ['cultivos', 'tab-cultivos', 'Cultivos'], ['alertas', 'tab-alertas', 'Alertas'], ['mas', 'tab-gestion', esAdmin() ? 'Gestión' : 'Más']];
+  pestanas.push(['cuenta', 'tab-cuenta', 'Cuenta']);
   tabs.className = `tabs n${pestanas.length}`;
   vaciar(tabs).append(...pestanas.map(([id, ico, t]) =>
     el('button', { class: est.tab === id ? 'activo' : '', type: 'button', onclick: () => { cerrarTodo(); clearInterval(est.timerTab); est.tab = id; est.montada = null; AQ.editando = false; pintarTabs(); pintar(); } },
-      el('span', { class: 'ico' }, ico), t, id === 'alertas' && n ? el('span', { class: 'cuenta' }, n) : null)));
+      ICO(ico, 'ico-tab'), t, id === 'alertas' && n ? el('span', { class: 'cuenta' }, n) : null, id === 'solicitudes' && est.nuevas ? el('span', { class: 'cuenta' }, est.nuevas) : null)));
 }
 
 /* pantallas apiladas (botón «Volver» y botón atrás de Android)  */
@@ -65,7 +66,12 @@ window.aqAtras = () => {
 async function refrescar() {
   if (esTecnico()) {                                    // el técnico no ve cultivos ni alertas: solo sus solicitudes, los equipos y su cuenta
     datos = datos || { panel: { totales: { alertas_abiertas: 0 } }, estados: [], abiertas: [] };
-    cabPunto.className = 'punto'; if (!est.montada) { pintarTabs(); pintar(); } return;
+    cabPunto.className = 'punto';
+    try {
+      const antes = est.nuevas || 0; est.nuevas = (await api.get('/mantenciones?estado=pendiente')).length;
+      if (est.nuevas !== antes) { if (est.nuevas > antes && navigator.vibrate) navigator.vibrate([200, 100, 200]); pintarTabs(); }
+    } catch { /* se reintenta en el próximo ciclo */ }
+    if (!est.montada) { pintarTabs(); pintar(); } return;
   }
   try {
     const r = await api.get('/movil/resumen');
@@ -144,6 +150,7 @@ function tarjetaCultivo(c) {
     estadoDispositivo(c),
     el('div', { class: 'mini' }, [...conAlerta, ...clave].slice(0, 4).map((l) => el('div', { class: `dato ${l.alertas_abiertas ? 'critica' : 'ok'}` },
       el('div', { class: 'n' }, l.tipo_nombre), el('div', { class: 'v' }, fmt(l.valor, 2), ' ', el('span', { class: 'u' }, l.unidad))))),
+    botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }, 'boton-secundario boton-tec'),
     el('div', { class: 'nota ver-mas' }, 'Ver detalle ›'));
 }
 function tarjetaAlerta(a, alTerminar) {
@@ -170,6 +177,8 @@ function vHoy() {
   vaciar(contenido).append(
     el('div', { class: `banner ${nivel}` }, el('div', { class: 'grande' }, n ? `${n} ${n === 1 ? 'falla requiere' : 'fallas requieren'} atención` : 'Todo en orden'),
       el('div', { class: 'peq' }, `${t.en_linea} de ${t.dispositivos} dispositivos en línea · ${todos.length} cultivos`)),
+    puedePedirTecnico() ? el('button', { class: 'pedir-rapido', type: 'button', onclick: () => pedirTecnico({ alTerminar: refrescar }) }, ICO('servicio-tecnico', 'item-ico-img'),
+      el('span', {}, el('strong', {}, 'Pedir técnico'), el('span', { class: 'nota' }, 'Arreglo, reemplazo, retiro o mantención de un equipo.'))) : null,
     ...(n ? [el('h2', {}, 'Para atender ahora'), ...datos.abiertas.slice(0, 8).map((a) => tarjetaAlerta(a))] : []),
     el('h2', {}, 'Tus cultivos'), ...(todos.length ? todos.map(tarjetaCultivo) : [el('p', { class: 'nota' }, 'No tienes cultivos asignados.')]));
 }
@@ -190,7 +199,8 @@ function abrirCultivo(c0) {
       el('p', { class: `aviso ${c.estado_conexion === 'en_linea' ? 'ok' : 'error'}` }, `${ETIQUETA[c.estado_conexion] || c.estado_conexion}${c.lecturas[0] ? ` · última comunicación ${hace(c.lecturas[0].ultima_comunicacion)}` : ''}`),
       estadoDispositivo(c),
       mias.length ? [el('h2', {}, 'Fallas abiertas'), ...mias.map((a) => tarjetaAlerta(a, () => cerrarYReabrir(c)))] : null,
-      esAdmin() ? el('button', { class: 'boton sec', type: 'button', onclick: () => abrirSimulacion(c.dispositivo_codigo) }, '🧪 Simular una falla en este cultivo') : null,
+      botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null, alTerminar: async () => { cerrarYReabrir(c); } }, 'boton-secundario boton-tec'),
+      esAdmin() ? el('button', { class: 'boton sec', type: 'button', onclick: () => abrirSimulacion(c.dispositivo_codigo) }, ICO('simular-fallas', 'ico-btn'), 'Simular una falla en este cultivo') : null,
       el('p', { class: 'nota' }, `Plantas: ${plantas.map((p) => p.nombre).join(', ') || 'sin plantas registradas'}`),
       el('h2', {}, 'Sensores (últimas 2 horas)'));
     const hasta = new Date(), desde = new Date(hasta.getTime() - 2 * 3600 * 1000);
@@ -225,24 +235,24 @@ async function vAlertas() {
 /*  Más / Gestión (supervisor y administrador): todo dentro de la app  */
 function vMas() {
   const items = [
-    ['📒', 'Bitácora de alertas', 'Quién reconoció, dio solución, no pudo solucionar, confirmó o rechazó cada falla.', hBitacora, esSupervision()],
-    ['📊', 'Comparar cultivos', 'Promedio, mínimo y máximo de una variable en cada cultivo.', hComparacion, esSupervision()],
-    ['📡', 'Dispositivos', 'Conexión, última comunicación y calidad de enlace de cada AquaBrain.', hDispositivos, esSupervision()],
-    ['🔧', 'Servicio técnico', 'Pedidos de arreglo, reemplazo, retiro o mantención y su estado.', (c) => vServicioTecnico(c), true],
-    ['📍', 'Ubicación de equipos', 'Dónde está cada dispositivo según su GPS, su recorrido y cómo llegar.', (c) => vUbicacion(c), true],
-    ['📈', 'Estadísticas', 'Alertas, tiempos de respuesta, cortes, dispositivos y mantenciones.', (c) => vEstadisticas(c), true],
-    ['🧪', 'Simular fallas', 'Falta o exceso de agua, nutrientes, luz, gases, pH, temperatura o corte de comunicación.', (c, h) => hSimulacion(c, h), esAdmin()],
-    ['👥', 'Usuarios', 'Crear usuarios, cambiar rol, instalaciones asignadas, activar o desactivar.', hUsuarios, esAdmin()],
-    ['🎚️', 'Reglas de alerta', 'Umbrales de cada cultivo: cambiar el valor o desactivar una regla.', hReglas, esAdmin()],
-    ['🏭', 'Instalaciones y cultivos', 'Crear y activar o desactivar instalaciones y cultivos.', hInstalaciones, esAdmin()],
-    ['⚙️', 'Parámetros', 'Minutos sin comunicación y retención de históricos.', hParametros, esAdmin()],
-    ['📱', 'Equipos vinculados', 'Celulares y navegadores de cada usuario; revocar o reactivar.', hEquipos, esAdmin()],
-    ['🛡️', 'Auditoría', 'Registro de todas las acciones del sistema.', hAuditoria, esAdmin()],
-    ['📥', 'Informes', 'Descargar Excel o CSV de mediciones, alertas y eventos.', hInformes, esAdmin()],
+    ['bitacora', 'Bitácora de alertas', 'Quién reconoció, dio solución, no pudo solucionar, confirmó o rechazó cada falla.', hBitacora, esSupervision()],
+    ['comparar', 'Comparar cultivos', 'Promedio, mínimo y máximo de una variable en cada cultivo.', hComparacion, esSupervision()],
+    ['dispositivos', 'Dispositivos', 'Conexión, última comunicación y calidad de enlace de cada AquaBrain.', hDispositivos, esSupervision()],
+    ['servicio-tecnico', 'Servicio técnico', 'Pedidos de arreglo, reemplazo, retiro o mantención y su estado.', (c) => vServicioTecnico(c), true],
+    ['ubicacion', 'Ubicación de equipos', 'Dónde está cada dispositivo según su GPS, su recorrido y cómo llegar.', (c) => vUbicacion(c), true],
+    ['estadisticas', 'Estadísticas', 'Alertas, tiempos de respuesta, cortes, dispositivos y mantenciones.', (c) => vEstadisticas(c), true],
+    ['simular-fallas', 'Simular fallas', 'Falta o exceso de agua, nutrientes, luz, gases, pH, temperatura o corte de comunicación.', (c, h) => hSimulacion(c, h), esAdmin()],
+    ['usuarios', 'Usuarios', 'Crear usuarios, cambiar rol, instalaciones asignadas, activar o desactivar.', hUsuarios, esAdmin()],
+    ['reglas-alerta', 'Reglas de alerta', 'Umbrales de cada cultivo: cambiar el valor o desactivar una regla.', hReglas, esAdmin()],
+    ['instalaciones', 'Instalaciones y cultivos', 'Crear y activar o desactivar instalaciones y cultivos.', hInstalaciones, esAdmin()],
+    ['parametros', 'Parámetros', 'Minutos sin comunicación y retención de históricos.', hParametros, esAdmin()],
+    ['equipos-vinculados', 'Equipos vinculados', 'Celulares y navegadores de cada usuario; revocar o reactivar.', hEquipos, esAdmin()],
+    ['auditoria', 'Auditoría', 'Registro de todas las acciones del sistema.', hAuditoria, esAdmin()],
+    ['informes', 'Informes', 'Descargar Excel o CSV de mediciones, alertas y eventos.', hInformes, esAdmin()],
   ].filter((x) => x[4]);
   vaciar(contenido).append(el('h2', {}, esAdmin() ? 'Gestión del sistema' : esSupervision() ? 'Herramientas de supervisión' : 'Más'),
     ...items.map(([ico, t, d, fn]) => el('button', { class: 'tarjeta item-mas', type: 'button', onclick: () => abrirPantalla(t, fn) },
-      el('span', { class: 'item-ico' }, ico), el('span', { class: 'item-txt' }, el('strong', {}, t), el('span', { class: 'nota' }, d)), el('span', { class: 'item-flecha' }, '›'))));
+      ICO(ico, 'item-ico-img'), el('span', { class: 'item-txt' }, el('strong', {}, t), el('span', { class: 'nota' }, d)), el('span', { class: 'item-flecha' }, '›'))));
 }
 
 async function hBitacora(cuerpo) {

@@ -9,15 +9,16 @@ function armar() {
   vaciar(raiz);
   const u = AQ.usuario, rol = u.rol;
   const tec = rol === 'tecnico';
-  const enlaces = [['#/', tec ? 'Solicitudes técnicas' : 'Panel', true], ['#/alertas', 'Alertas', !tec], ['#/seguimiento', 'Seguimiento de alertas', !tec && rol !== 'encargado_cultivo'],
-    ['#/servicio', 'Servicio técnico', !tec], ['#/ubicacion', 'Ubicación', true], ['#/estadisticas', tec ? 'Mis estadísticas' : 'Estadísticas', true],
-    ['#/comparacion', 'Comparación', !tec && rol !== 'encargado_cultivo'], ['#/administracion/informes', 'Informes', rol === 'administrador'],
-    ['#/simulacion', 'Simulación', rol === 'administrador'], ['#/administracion', 'Administración', rol === 'administrador'], ['#/cuenta', 'Mi cuenta', true]];
+  const enlaces = [['#/', tec ? 'Órdenes de trabajo' : 'Panel', true, tec ? 'servicio-tecnico' : 'tab-hoy'], ['#/alertas', 'Alertas', !tec, 'tab-alertas'],
+    ['#/seguimiento', 'Seguimiento de alertas', !tec && rol !== 'encargado_cultivo', 'bitacora'],
+    ['#/servicio', 'Servicio técnico', !tec, 'servicio-tecnico'], ['#/ubicacion', 'Ubicación', true, 'ubicacion'], ['#/estadisticas', tec ? 'Mis estadísticas' : 'Estadísticas', true, 'estadisticas'],
+    ['#/comparacion', 'Comparación', !tec && rol !== 'encargado_cultivo', 'comparar'], ['#/administracion/informes', 'Informes', rol === 'administrador', 'informes'],
+    ['#/simulacion', 'Simulación', rol === 'administrador', 'simular-fallas'], ['#/administracion', 'Administración', rol === 'administrador', 'parametros'], ['#/cuenta', 'Mi cuenta', true, 'tab-cuenta']];
   contenido = el('main', { class: 'contenido' });
   raiz.append(el('div', { class: 'aplicacion' },
     el('aside', { class: 'lateral' }, el('div', { class: 'marca-fila' }, el('div', { class: 'marca-logo' }, logo('logo-lateral', true)),
-      campana((n) => { location.hash = destinoAviso(n) === 'servicio' ? (rol === 'tecnico' ? '#/' : '#/servicio') : '#/alertas'; }, 'campana-lateral')),
-      el('nav', { 'aria-label': 'Principal', id: 'menu' }, enlaces.filter((e) => e[2]).map(([h, t]) => el('a', { href: h, 'data-h': h }, t)),
+      campana((n) => { AQ.abrirOrden = n.mantencion_id || null; location.hash = destinoAviso(n) === 'servicio' ? (rol === 'tecnico' ? '#/' : '#/servicio') : '#/alertas'; }, 'campana-lateral')),
+      el('nav', { 'aria-label': 'Principal', id: 'menu' }, enlaces.filter((e) => e[2]).map(([h, t, , ico]) => el('a', { href: h, 'data-h': h }, ICO(ico, 'ico-nav'), t)),
         rol === 'administrador' ? el('a', { href: '/admin', class: 'externo' }, 'Consola Django ↗') : null),
       el('div', { class: 'usuario' }, el('strong', {}, u.nombre), el('span', {}, ROL[rol]),
         el('button', { type: 'button', class: 'boton-texto', onclick: () => { clearInterval(temporizador); cerrarSesion(); } }, 'Cerrar sesión'))),
@@ -59,6 +60,7 @@ function tarjetaCultivo(c, lecturas, iid) {
   return el('a', { class: 'cultivo', href: `#/instalacion/${iid}` },
     el('div', { class: 'cultivo-cab' }, el('h4', {}, c.nombre), estado(c.estado_conexion)),
     el('div', { class: 'suave' }, `Dispositivo ${c.dispositivo_codigo}`, c.alertas_abiertas ? el('strong', { class: 'alerta-n' }, ` · ${c.alertas_abiertas} alerta(s)`) : null),
+    botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }),
     (c.fallas || []).length ? el('div', { class: 'fallas-web' }, c.fallas.map((f) => el('div', { class: `falla-web ${f.estado}` },
       el('strong', {}, tituloAlerta(f)), ` · ${ETIQUETA_FALLA[f.estado] || f.estado}${f.por ? ` (${f.por})` : ''}${f.no_solucionado ? ' · aún sin solución' : ''}`))) : null,
     c.ultima_solucion ? el('div', { class: 'falla-web resuelta' }, el('strong', {}, `✔ Solucionado: ${c.ultima_solucion.problema || 'falla'}`),
@@ -73,7 +75,7 @@ async function vPanel(cont) {
     const estados = await Promise.all(d.instalaciones.map((i) => api.get(`/estado-actual${qs({ instalacion_id: i.id })}`)));
     const t = d.totales;
     vaciar(zona).append(
-      encabezado('Panel general', el('span', { class: 'insignia' }, `Base de datos: ${d.modo_bd === 'firebase' ? 'Firebase Realtime Database' : 'modo local'}`)),
+      encabezado('Panel general', botonPedirTecnico({ alTerminar: cargar }), el('span', { class: 'insignia' }, `Base de datos: ${d.modo_bd === 'firebase' ? 'Firebase Realtime Database' : 'modo local'}`)),
       el('dl', { class: 'indicadores' },
         [['Instalaciones', t.instalaciones], ['Dispositivos en línea', `${t.en_linea} de ${t.dispositivos}`], ['Sin comunicación', t.sin_comunicacion],
           ['Alertas abiertas', t.alertas_abiertas], ['Mediciones (24 h)', fmt(t.mediciones_24h, 0)]].map(([k, v]) => el('div', {}, el('dt', {}, k), el('dd', {}, v)))),

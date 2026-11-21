@@ -22,8 +22,8 @@ OPERADORES = {">": lambda v, u: v > u, ">=": lambda v, u: v >= u, "<": lambda v,
 
 _lock = threading.Lock()
 _nonces = {}
-_ultima = None # sensor_id -> ts (ms) de la última medición registrada
-_recientes = {} # sensor_id -> {claves ts recientes}: detecta reenvíos sin consultar a Firebase
+_ultima = None            # sensor_id -> ts (ms) de la última medición registrada
+_recientes = {}           # sensor_id -> {claves ts recientes}: detecta reenvíos sin consultar a Firebase
 
 
 def _lista_mediciones(x):
@@ -33,8 +33,9 @@ def _lista_mediciones(x):
         raise ValueError(f"Máximo {settings.AQ['INGEST_MAX_BATCH']} mediciones por lote.")
     return x
 
-"""Posición que informa el GPS del dispositivo: {lat, lng, precision (m, opcional), altitud (m, opcional)}."""
-def _gps(x):    
+
+def _gps(x):
+    """Posición que informa el GPS del dispositivo: {lat, lng, precision (m, opcional), altitud (m, opcional)}."""
     if not isinstance(x, dict) or set(x) - {"lat", "lng", "precision", "altitud", "timestamp"}:
         raise ValueError("gps inválido.")
     lat, lng = numero(x.get("lat")), numero(x.get("lng"))
@@ -46,9 +47,10 @@ def _gps(x):
             sal[k] = round(float(numero(x[k])), 1)
     return sal
 
-"""Deja la posición actual del dispositivo y su historial (solo cuando se movió ≥ 30 m o pasaron 30 min, para no llenar la base).
+
+def registrar_ubicacion(disp, gps, mapa, ahora, origen="gps"):
+    """Deja la posición actual del dispositivo y su historial (solo cuando se movió ≥ 30 m o pasaron 30 min, para no llenar la base).
     Si se movió ≥ 100 m queda un evento. El dispositivo puede cambiar de lugar: lo importante es saber dónde está."""
-def registrar_ubicacion(disp, gps, mapa, ahora, origen="gps"):   
     prev = disp.get("ubicacion")
     mov = distancia_m(prev["lat"], prev["lng"], gps["lat"], gps["lng"]) if prev else None
     ubic = {**gps, "origen": origen, "actualizada_en": ahora, "guardada_en": (prev or {}).get("guardada_en", 0)}
@@ -107,9 +109,10 @@ def _cargar_ultima():
             _ultima = {k: v["ts"] for k, v in rtdb().get("ultima", {}).items()}
         return _ultima
 
+
 # autenticación del dispositivo (firma HMAC)
-"""Verifica la firma HMAC. Defensas: ventana de tiempo, nonce de un solo uso, comparación en tiempo constante."""
-def autenticar_dispositivo(request):   
+def autenticar_dispositivo(request):
+    """Verifica la firma HMAC. Defensas: ventana de tiempo, nonce de un solo uso, comparación en tiempo constante."""
     def fallo():
         return ErrorApi(401, "firma_invalida", "Autenticación de dispositivo inválida.")
 
@@ -212,7 +215,7 @@ def procesar_lote(disp, lote, *, origen="api", actualizar_estado=True):
         contadores[hora] = contadores.get(hora, 0) + 1
         diferidas += m["estado_conexion"] == "diferido"
         if m["t"] < ultimas.get(s["id"], 0):
-            continue  # dato fuera de orden: queda en el histórico, no altera alertas
+            continue                                  # dato fuera de orden: queda en el histórico, no altera alertas
         ultimas[s["id"]] = m["t"]
         nuevas_ultima[s["id"]] = {"ts": m["t"], "valor": m["valor"], "conexion": m["estado_conexion"]}
         for r in reglas:

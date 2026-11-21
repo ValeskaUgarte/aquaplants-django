@@ -456,7 +456,7 @@ def _panel(usuario):
         cult = repo.col("cultivos")
         filas.append({
             "cultivos": [{"id": d.get("cultivo_id"), "nombre": cult.get(d.get("cultivo_id"), {}).get("nombre", "Sin cultivo"),
-                          "dispositivo_codigo": d["codigo"], "estado_conexion": d.get("estado_conexion", "sin_datos"),
+                          "dispositivo_codigo": d["codigo"], "dispositivo_id": d["id"], "estado_conexion": d.get("estado_conexion", "sin_datos"),
                           "alertas_abiertas": sum(a.get("dispositivo_id") == d["id"] for a in abiertas),
                           "estado_alerta": estado_alerta(d["id"]), "ultima_solucion": ultima_solucion(d["id"]), "fallas": fallas(d["id"])}
                          for d in sorted(activos, key=lambda x: x["codigo"])],

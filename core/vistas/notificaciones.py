@@ -13,7 +13,7 @@ def listar(request):
     return JsonResponse({
         "no_leidas": sum(1 for n in items if not n.get("leida")),
         "items": [{"id": n["id"], "tipo": n["tipo"], "titulo": n["titulo"], "mensaje": n["mensaje"], "alerta_id": n.get("alerta_id"),
-                   "instalacion_id": n.get("instalacion_id"), "critica": bool(n.get("critica")), "creada_en": iso(n["creada_en"]),
+                   "instalacion_id": n.get("instalacion_id"), "mantencion_id": n.get("mantencion_id") or None, "critica": bool(n.get("critica")), "creada_en": iso(n["creada_en"]),
                    "leida": bool(n.get("leida"))} for n in items]})
 
 
