@@ -1,10 +1,10 @@
 """Dispositivo AquaBrain simulado (Python, solo biblioteca estándar: no requiere Node ni pip).
 
 Comportamiento igual al simulador original en Node:
-  - genera mediciones con timestamp;
-  - firma cada envío (HMAC-SHA256 sobre "timestamp.nonce.cuerpo") y lo envía a la API;
-  - ante pérdida de conectividad guarda las mediciones en una cola LOCAL persistida en disco;
-  - reintenta con espera exponencial y, al volver la red, sincroniza marcándolas como "diferido".
+genera mediciones con timestamp;
+firma cada envío (HMAC-SHA256 sobre "timestamp.nonce.cuerpo") y lo envía a la API;
+ante pérdida de conectividad guarda las mediciones en una cola LOCAL persistida en disco;
+reintenta con espera exponencial y, al volver la red, sincroniza marcándolas como "diferido".
 
 Uso:
   python simulador.py --config ../data/dispositivos-demo.json --api http://127.0.0.1:8000 \
@@ -54,8 +54,8 @@ ESCENARIOS = {
     "helada":            {"etiqueta": "Riesgo de helada (temperatura ambiente baja)", "cambios": {"temperatura_ambiente": lambda b: 2}},
     "sin_comunicacion":  {"etiqueta": "Dispositivo sin comunicación (corte prolongado)", "cambios": {}},
 }
-MAX_COLA = 2000          # memoria limitada del dispositivo: ante un corte muy largo se conservan las mediciones más recientes
-LOTE = 150               # mediciones por envío (lotes chicos: cada uno se confirma rápido aunque la base esté en la nube)
+MAX_COLA = 2000 # memoria limitada del dispositivo: ante un corte muy largo se conservan las mediciones más recientes
+LOTE = 150 # mediciones por envío (lotes chicos: cada uno se confirma rápido aunque la base esté en la nube)
 LOTES_POR_CICLO = 3
 AQUI = Path(__file__).resolve().parent
 
@@ -85,19 +85,19 @@ class DispositivoSimulado:
         self.fin_corte = 0
         self.proximo_corte = 0
         self.t = 0
-        self.escenario = None           # falla en curso (clave de ESCENARIOS)
+        self.escenario = None # falla en curso (clave de ESCENARIOS)
         self.escenario_hasta = 0.0
         self.estadisticas = {"generadas": 0, "enviadas": 0, "aceptadas": 0, "duplicadas": 0,
                              "rechazadas": 0, "reintentos": 0}
 
+    """Escritura atómica: nunca queda un archivo a medias."""
     def persistir_cola(self):
-        """Escritura atómica: nunca queda un archivo a medias."""
         tmp = self.archivo_cola.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self.cola))
         os.replace(tmp, self.archivo_cola)
 
+    """Corte de red manual (desde la web o desde código)."""
     def provocar_corte(self, segundos, ahora=None):
-        """Corte de red manual (desde la web o desde código)."""
         ahora = ahora or int(time.time() * 1000)
         self.red_caida = True
         self.fin_corte = ahora + segundos * 1000
@@ -118,9 +118,10 @@ class DispositivoSimulado:
         if not self.red_caida and ahora >= self.proximo_corte:
             self.provocar_corte(corte_dur, ahora)
 
+
+    """Provoca una falla concreta del cultivo (falta de agua, gases, pH...). Dura hasta que alguien da la solución
+    (ver `reparar`) o hasta que pasan `segundos`."""
     def provocar_escenario(self, nombre, segundos=1800):
-        """Provoca una falla concreta del cultivo (falta de agua, gases, pH...). Dura hasta que alguien da la solución
-        (ver `reparar`) o hasta que pasan `segundos`."""
         if nombre not in ESCENARIOS:
             raise ValueError(f"Escenario desconocido: {nombre}")
         if nombre == "sin_comunicacion":
@@ -129,14 +130,14 @@ class DispositivoSimulado:
         self.escenario, self.escenario_hasta = nombre, time.time() + segundos
         self.log(f"[{self.id_dispositivo}] FALLA SIMULADA: {ESCENARIOS[nombre]['etiqueta']}")
 
+    """Falla al azar (compatibilidad con el botón «Provocar anomalía»)."""
     def provocar_anomalia(self, segundos=180):
-        """Falla al azar (compatibilidad con el botón «Provocar anomalía»)."""
         posibles = [k for k, v in ESCENARIOS.items() if k != "sin_comunicacion"
                     and any(x["tipo_variable"] in v["cambios"] for x in self.sensores)]
         self.provocar_escenario(random.choice(posibles or ["falla_bomba"]), segundos)
 
+    """Alguien dio la solución: se termina la falla y vuelve la conexión."""
     def reparar(self):
-        """Alguien dio la solución: se termina la falla y vuelve la conexión."""
         self.escenario, self.escenario_hasta = None, 0.0
         if self.red_caida:
             self.red_caida, self.fin_corte = False, 0
@@ -149,8 +150,8 @@ class DispositivoSimulado:
             return "sin_comunicacion"
         return self.escenario
 
+    """Valor simulado alrededor del nivel propio del cultivo (`base` del sensor; si falta, el genérico del tipo)."""
     def valor(self, sensor):
-        """Valor simulado alrededor del nivel propio del cultivo (`base` del sensor; si falta, el genérico del tipo)."""
         tipo = sensor["tipo_variable"]
         b = sensor.get("base", BASE.get(tipo, 1))
         v = b * (1 + math.sin(self.t / 12) * 0.08 + (random.random() - 0.5) * 0.04)
@@ -206,8 +207,8 @@ class DispositivoSimulado:
             if not self.cola or ahora < self.proximo_intento or not self._enviar_lote(ahora):
                 return
 
+    """Envía un lote. Devuelve True si el servidor lo confirmó."""
     def _enviar_lote(self, ahora):
-        """Envía un lote. Devuelve True si el servidor lo confirmó."""
         lote = self.cola[:LOTE]
         enviar = [({**m, "estado_conexion": "diferido"} if self.fallos > 0 else m) for m in lote]
         try:

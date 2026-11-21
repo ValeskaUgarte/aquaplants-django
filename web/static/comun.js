@@ -12,7 +12,7 @@ Element.prototype.append = function (...hijos) { return _anexar.apply(this, hijo
 
 class ErrorApi extends Error { constructor(m, codigo, detalles) { super(m); this.codigo = codigo; this.detalles = detalles || []; } }
 
-/* ---------------- Transporte ----------------
+/* Transporte
    * Navegador (web o /movil servido por Django): fetch directo a /api con cookie de sesión.
    * App Android: SOLO a través de Firebase (relé, ver core/relay.py). El celular deja la petición en relay/sol/{id}, el servidor
      la escucha en tiempo real, la ejecuta y deja la respuesta en relay/resp/{id}. No hace falta estar en la misma WiFi:
@@ -22,10 +22,10 @@ const _local = { leer: (k) => { try { return localStorage.getItem(k); } catch { 
 const hexAleatorio = (n) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join(''); };
 const RELE = (() => {
   try { if (window.AquaAndroid && AquaAndroid.firebaseUrl) { const u = AquaAndroid.firebaseUrl(); if (u) return u.replace(/\/+$/, ''); } } catch { /* no es la app */ }
-  // Versión web publicada en Firebase Hosting (https://TU-PROYECTO.web.app): usa siempre el relé de ESE mismo proyecto.
+  
   const m = location.hostname.match(/^([a-z0-9-]+)\.(web\.app|firebaseapp\.com)$/);
   if (m) return `https://${m[1]}-default-rtdb.firebaseio.com`;
-  // Pruebas desde un navegador: /movil?rele=https://TU-PROYECTO-default-rtdb.firebaseio.com. Solo se aceptan bases de Firebase
+  // Pruebas desde un navegador: /movil?rele=https://aquaplants-370b7-default-rtdb.firebaseio.com/. Solo se aceptan bases de Firebase
   // (o la base local): un enlace con otra dirección podría desviar la contraseña a un sitio ajeno.
   const q = new URLSearchParams(location.search).get('rele');
   const ok = q && /^(https:\/\/[a-z0-9-]+\.(firebaseio\.com|[a-z0-9-]+\.firebasedatabase\.app)|http:\/\/(127\.0\.0\.1|localhost):\d+)\/?$/.test(q);
@@ -137,7 +137,7 @@ function el(tag, attrs, ...hijos) {
 const vaciar = (n) => { while (n.firstChild) n.removeChild(n.firstChild); return n; };
 const fmt = (v, dec = 2) => (v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toLocaleString('es-CL', { maximumFractionDigits: dec }));
 const fmtLectura = (v) => fmt(v, 3);
-/* ---------------- Flujo de una alerta: activa -> reconocida -> revisada -> resuelta ----------------
+/*  Flujo de una alerta: activa -> reconocida -> revisada -> resuelta 
    Si el valor vuelve a la normalidad antes de que alguien la atienda, el sistema la resuelve sola (queda en el historial). */
 const ETIQUETA_ALERTA = { activa: 'Alerta activa', reconocida: 'En revisión', revisada: 'Falta confirmar', ok: 'Sin alertas' };
 const ETIQUETA_FALLA = { activa: 'sin atender', reconocida: 'en revisión', revisada: 'solucionada · falta confirmar' };
@@ -238,7 +238,7 @@ function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
   return caja.append(msg), caja;
 }
 
-/* ---------------- Solución cuestionada y derivación a técnico / mantención ---------------- */
+/*  Solución cuestionada y derivación a técnico / mantención  */
 const TIPOS_MANTENCION = [['tecnico', 'Visita de técnico'], ['bateria', 'Cambio de batería'], ['dispositivo', 'Cambio de dispositivo'], ['configuracion', 'Falla de configuración'],
   ['componente', 'Falla de un componente'], ['sensor', 'Revisión o cambio de sensor'], ['red', 'Revisión de red, WiFi o energía'], ['otro', 'Otra mantención']];
 const ACCIONES_MANTENCION = [['arreglo', 'Arreglo o reparación'], ['reemplazo', 'Reemplazo del equipo'], ['retiro', 'Retiro del equipo'], ['mantencion', 'Mantención preventiva']];
@@ -415,7 +415,7 @@ function graficoSensor(f, referencias = [], horas = 2) {
 }
 const puntosDe = (resp) => (resp.puntos || []).map((p) => ({ t: Date.parse(p.t), v: Number(p.prom !== undefined ? p.prom : p.valor) }));
 
-/* ---------------- formularios genéricos (campos: {nombre, etiqueta, tipo, opciones, requerido, ayuda, vacioNulo}) ---------------- */
+/*  formularios genéricos (campos: {nombre, etiqueta, tipo, opciones, requerido, ayuda, vacioNulo}) */
 function formulario({ campos, inicial = {}, textoBoton, onEnviar, onCancelar }) {
   const v = { ...inicial }, err = el('div', {});
   const form = el('form', { class: 'panel-form' }, err);
@@ -455,11 +455,11 @@ function formulario({ campos, inicial = {}, textoBoton, onEnviar, onCancelar }) 
 const opciones = (lista, valor, texto) => (lista || []).map((x) => ({ valor: x[valor], texto: typeof texto === 'function' ? texto(x) : x[texto] }));
 
 
-/* ---------------- Marca: el logo de AquaPlants (reemplaza al emoji de hoja) ---------------- */
+/*  Marca: el logo de AquaPlants (reemplaza al emoji de hoja)  */
 const logo = (clase = 'logo', completo = false) => el('img', { class: clase, src: completo ? '/static/logo-aquaplants.png' : '/static/logo-marca.png', alt: 'AquaPlants', draggable: 'false' });
 const tituloAlerta = (a) => `${a.severidad === 'emergencia' && a.tipo !== 'sin_comunicacion' ? '🚨 EMERGENCIA · ' : ''}${a.problema || (a.tipo === 'sin_comunicacion' ? 'Dispositivo sin comunicación' : 'Valor fuera de rango')}`;
 
-/* ---------------- Equipo (celular o navegador) y puente con la app Android ---------------- */
+/*  Equipo (celular o navegador) y puente con la app Android  */
 function infoAndroid() {
   try { if (window.AquaAndroid && AquaAndroid.info) return JSON.parse(AquaAndroid.info()); } catch { /* no es la app */ }
   return null;
@@ -479,7 +479,7 @@ async function vincularEquipo() {
   }
 }
 
-/* ---------------- Notificaciones: campana, aviso del sistema y sonido ---------------- */
+/*  Notificaciones: campana, aviso del sistema y sonido  */
 const Avisos = { items: [], noLeidas: 0, conocidas: null, temporizador: null, oyentes: [], alAbrir: null };
 const iconoCampana = () => {
   const NS = 'http://www.w3.org/2000/svg', s = document.createElementNS(NS, 'svg');

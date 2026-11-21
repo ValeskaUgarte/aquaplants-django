@@ -35,7 +35,7 @@ function pintarTabs() {
       el('span', { class: 'ico' }, ico), t, id === 'alertas' && n ? el('span', { class: 'cuenta' }, n) : null)));
 }
 
-/* ---------------- pantallas apiladas (botón «Volver» y botón atrás de Android) ---------------- */
+/* pantallas apiladas (botón «Volver» y botón atrás de Android)  */
 function abrirPantalla(titulo, construir) {
   const cuerpo = el('div', { class: 'cuerpo' }, el('p', { class: 'nota' }, 'Cargando…'));
   const h = { cuerpo, recargar: null };
@@ -61,7 +61,7 @@ window.aqAtras = () => {
   return false;
 };
 
-/* ---------------- datos ---------------- */
+/*  datos  */
 async function refrescar() {
   if (esTecnico()) {                                    // el técnico no ve cultivos ni alertas: solo sus solicitudes, los equipos y su cuenta
     datos = datos || { panel: { totales: { alertas_abiertas: 0 } }, estados: [], abiertas: [] };
@@ -112,7 +112,7 @@ function cultivosDe(i, k) {                                  // agrupa las lectu
 }
 const todosLosCultivos = () => datos.panel.instalaciones.flatMap((i, k) => cultivosDe(i, k));
 
-/* ---------------- piezas ---------------- */
+/*  piezas  */
 function nivelCultivo(c) {
   const f = c.fallas || [];
   if (c.estado_conexion === 'sin_comunicacion' || f.some((x) => x.estado === 'activa')) return 'critica';
@@ -163,7 +163,7 @@ async function accion(fn, ok, despues) {
   try { await fn(); if (ok) mostrarAviso(ok, 'ok'); if (despues) await despues(); } catch (e) { mostrarAviso(mensajeError(e), 'error'); }
 }
 
-/* ---------------- Hoy ---------------- */
+/*  Hoy  */
 function vHoy() {
   const t = datos.panel.totales, n = t.alertas_abiertas, todos = todosLosCultivos();
   const nivel = n || t.sin_comunicacion ? 'critica' : 'ok';
@@ -174,7 +174,7 @@ function vHoy() {
     el('h2', {}, 'Tus cultivos'), ...(todos.length ? todos.map(tarjetaCultivo) : [el('p', { class: 'nota' }, 'No tienes cultivos asignados.')]));
 }
 
-/* ---------------- Cultivos y detalle ---------------- */
+/*  Cultivos y detalle  */
 function vCultivos() {
   vaciar(contenido).append(...datos.panel.instalaciones.flatMap((i, k) => [el('h2', {}, i.nombre), ...cultivosDe(i, k).map(tarjetaCultivo)]));
 }
@@ -211,7 +211,7 @@ function abrirCultivo(c0) {
 }
 function cerrarYReabrir(c) { const h = pila[pila.length - 1]; if (h) h.recargar(); }
 
-/* ---------------- Alertas ---------------- */
+/*  Alertas  */
 const FILTROS_ALERTA = [['abiertas', 'Abiertas'], ['revisada', 'Falta confirmar'], ['no_solucionadas', 'Sin solución'], ['resuelta', 'Resueltas']];
 async function vAlertas() {
   const filtro = est.filtro;
@@ -222,7 +222,7 @@ async function vAlertas() {
     ...(lista.length ? lista.map((a) => tarjetaAlerta(a, () => vAlertas())) : [el('p', { class: 'aviso ok' }, 'No hay alertas con este filtro.')]));
 }
 
-/* ---------------- Más / Gestión (supervisor y administrador): todo dentro de la app ---------------- */
+/*  Más / Gestión (supervisor y administrador): todo dentro de la app  */
 function vMas() {
   const items = [
     ['📒', 'Bitácora de alertas', 'Quién reconoció, dio solución, no pudo solucionar, confirmó o rechazó cada falla.', hBitacora, esSupervision()],
@@ -438,7 +438,7 @@ async function hInformes(cuerpo) {
     el('p', { class: 'nota' }, 'En el celular el archivo queda en la carpeta «Descargas».'));
 }
 
-/* ---------------- Cuenta ---------------- */
+/* Cuenta */
 function vCuenta() {
   const u = AQ.usuario, msg = el('div', {});
   const a = el('input', { type: 'password', placeholder: 'Contraseña actual', autocomplete: 'current-password' });

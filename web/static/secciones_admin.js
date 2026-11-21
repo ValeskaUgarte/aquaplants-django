@@ -14,7 +14,7 @@ function marco(z) {
 }
 const accion = (m, fn, texto, recargar) => async () => { try { await fn(); m.ok(texto); await recargar(); } catch (e) { m.mal(e); } };
 
-/* ---------------- Usuarios ---------------- */
+/*  Usuarios  */
 async function secUsuarios(z) {
   const m = marco(z), [usuarios, insts, disp] = await Promise.all([api.get('/usuarios'), api.get('/instalaciones'), api.get('/dispositivos')]);
   const roles = Object.entries(ROL).map(([valor, texto]) => ({ valor, texto }));
@@ -52,7 +52,7 @@ async function secUsuarios(z) {
         ' ', botonTexto('Eliminar', () => eliminar(f))] }], usuarios));
 }
 
-/* ---------------- Instalaciones ---------------- */
+/*  Instalaciones  */
 async function secInstalaciones(z) {
   const m = marco(z), [datos, tecs] = await Promise.all([api.get('/instalaciones'), api.get('/tecnicos')]), recargar = () => secInstalaciones(z);
   const campoTec = { nombre: 'tecnico_id', etiqueta: 'Técnico o servicio técnico asignado (conexión directa)', tipo: 'select', ayuda: 'Las solicitudes de esta instalación le llegan solo a él. Sin técnico asignado llegan a todos los técnicos.',
@@ -71,7 +71,7 @@ async function secInstalaciones(z) {
       { titulo: 'Estado', ver: (f) => (f.activa ? 'Activa' : 'Inactiva') }, { titulo: '', ver: (f) => botonTexto('Editar', () => editar(f)) }], datos));
 }
 
-/* ---------------- Cultivos y plantas ---------------- */
+/*  Cultivos y plantas  */
 async function secCultivos(z) {
   const m = marco(z), [insts, cultivos, plantas, disp] = await Promise.all([api.get('/instalaciones'), api.get('/cultivos'), api.get('/plantas'), api.get('/dispositivos')]);
   const recargar = () => secCultivos(z);
@@ -92,7 +92,7 @@ async function secCultivos(z) {
         { titulo: '', ver: (p) => botonTexto('Eliminar', accion(m, () => api.del(`/plantas/${p.id}`), 'Planta eliminada.', recargar)) }], plantas.filter((p) => p.cultivo_id === c.id), 'Sin plantas registradas.')); }));
 }
 
-/* ---------------- Dispositivos y sensores ---------------- */
+/*  Dispositivos y sensores  */
 let _mensajeSensores = null, _filtroSensores = '';     // el mensaje de «sensores creados» y el cultivo mostrado sobreviven a la recarga de la pantalla
 async function secDispositivos(z) {
   const m = marco(z), [insts, disp, sens, tipos, cultivos] = await Promise.all([api.get('/instalaciones'), api.get('/dispositivos'), api.get('/sensores'), api.get('/tipos-sensor'), api.get('/cultivos')]);
@@ -168,7 +168,7 @@ async function secDispositivos(z) {
       sens.filter((s) => !_filtroSensores || s.dispositivo_id === _filtroSensores), 'Este cultivo aún no tiene sensores: usa «Nuevo sensor».'));
 }
 
-/* ---------------- Tipos de sensor ---------------- */
+/*  Tipos de sensor  */
 async function secTipos(z) {
   const m = marco(z), datos = await api.get('/tipos-sensor'), recargar = () => secTipos(z);
   const nuevo = () => m.mostrarForm(formulario({ textoBoton: 'Crear tipo', onCancelar: m.cerrarForm, campos: [
@@ -182,7 +182,7 @@ async function secTipos(z) {
       { titulo: 'Mínimo', num: true, ver: (f) => fmt(f.valor_min) }, { titulo: 'Máximo', num: true, ver: (f) => fmt(f.valor_max) }], datos));
 }
 
-/* ---------------- Reglas de alerta ---------------- */
+/*  Reglas de alerta  */
 async function secReglas(z) {
   const m = marco(z), [reglas, tipos, sens] = await Promise.all([api.get('/reglas-alerta'), api.get('/tipos-sensor'), api.get('/sensores')]), recargar = () => secReglas(z);
   const etiquetaSensor = (s) => `${s.cultivo_nombre || 'Sin cultivo'} · ${s.dispositivo_codigo} · ${s.tipo_nombre}`;
@@ -204,7 +204,7 @@ async function secReglas(z) {
         botonTexto('Eliminar', () => confirm('¿Eliminar la regla?') && accion(m, () => api.del(`/reglas-alerta/${f.id}`), 'Regla eliminada.', recargar)())) }], reglas));
 }
 
-/* ---------------- Parámetros del sistema ---------------- */
+/*  Parámetros del sistema  */
 async function secParametros(z) {
   const m = marco(z), datos = await api.get('/parametros'), recargar = () => secParametros(z);
   datos.forEach((p) => {
@@ -215,7 +215,7 @@ async function secParametros(z) {
   });
 }
 
-/* ---------------- Carga manual ---------------- */
+/*  Carga manual  */
 async function secManual(z) {
   const m = marco(z), sens = await api.get('/sensores');
   const f = { sensor_id: '', valor: '', timestamp: '' };
@@ -229,7 +229,7 @@ async function secManual(z) {
   m.cuerpo.append(form);
 }
 
-/* ---------------- Auditoría ---------------- */
+/*  Auditoría  */
 async function secAuditoria(z) {
   const m = marco(z), datos = await api.get('/auditoria'), recargar = () => secAuditoria(z), verZona = el('div', {});
   m.cuerpo.append(el('div', { class: 'acciones' }, el('button', { class: 'boton-secundario', type: 'button', onclick: recargar }, 'Actualizar'),
@@ -237,7 +237,7 @@ async function secAuditoria(z) {
     verZona, tabla([{ titulo: 'Fecha', ver: (f) => fechaHora(f.ocurrido_en) }, { titulo: 'Usuario', ver: (f) => f.usuario || '—' }, { titulo: 'Acción', campo: 'accion' }, { titulo: 'Entidad', ver: (f) => f.entidad || '—' }, { titulo: 'IP', ver: (f) => f.ip || '—' }], datos));
 }
 
-/* ---------------- Solo lectura (consola /admin) ---------------- */
+/*  Solo lectura (consola /admin) */
 async function secAlertasTodas(z) {
   const m = marco(z), datos = await api.get(`/alertas${qs({ limite: 200 })}`);
   m.cuerpo.append(tabla([{ titulo: 'Estado', ver: (f) => estado(f.estado) }, { titulo: 'Cultivo', ver: (f) => f.cultivo || '—' }, { titulo: 'Detalle', campo: 'mensaje' }, { titulo: 'Instalación', campo: 'instalacion' },
@@ -250,7 +250,7 @@ async function secEventosTodos(z) {
 }
 
 
-/* ---------------- Seguimiento de alertas (administrador y supervisor) ---------------- */
+/*  Seguimiento de alertas (administrador y supervisor)  */
 const minutosATexto = (m) => (m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`);
 function comentarios(f) {
   return el('div', {}, f.reconocida_por ? el('div', { class: 'meta suave' }, `Reconocida por ${f.reconocida_por}.`) : null,
@@ -281,7 +281,7 @@ async function secSeguimiento(z) {
 }
 async function vSeguimiento() { const z = contenido.firstChild; vaciar(z).append(encabezado('Seguimiento de alertas')); const c = el('div', {}); z.append(c); await secSeguimiento(c); }
 
-/* ---------------- Informes (administrador) ---------------- */
+/*  Informes (administrador)  */
 const fechaLocal = (dias = 0) => { const d = new Date(Date.now() + dias * 86400000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const fmtMin = (v) => (v == null ? '—' : v < 1 ? '< 1 min' : v < 60 ? `${fmt(v, 0)} min` : `${Math.floor(v / 60)} h ${Math.round(v % 60)} min`);
 const barraPct = (v) => (v == null ? el('span', { class: 'suave' }, '—') : el('span', { class: 'barra-pct', title: `${fmt(v, 1)} %` },
@@ -367,7 +367,7 @@ function tablaTrabajadores(d) {
       { titulo: 'Mantenciones cerradas', num: true, campo: 'mantenciones_cerradas' }], d.personas, 'No hay personas activas.'));
 }
 
-/* ---------------- Equipos vinculados (administrador) ---------------- */
+/*  Equipos vinculados (administrador)  */
 async function secEquipos(z) {
   const m = marco(z), datos = await api.get('/equipos'), recargar = () => secEquipos(z);
   m.cuerpo.append(el('p', { class: 'ayuda' }, 'Celulares y navegadores desde los que cada persona ingresó. Al revocar un equipo se cierran sus sesiones y no podrá volver a vincularse hasta que lo reactives.'),
@@ -378,7 +378,7 @@ async function secEquipos(z) {
         : botonTexto('Revocar', () => confirm('¿Revocar este equipo? Se cerrará su sesión.') && accion(m, () => api.post(`/equipos/${f.id}/revocar`), 'Equipo revocado.', recargar)())) }], datos, 'Aún no hay equipos vinculados.'));
 }
 
-/* ---------------- Mantenciones y técnicos ---------------- */
+/*  Mantenciones y técnicos  */
 async function secMantenciones(z) {
   const m = marco(z), recargar = () => secMantenciones(z);
   const filtro = z.dataset.filtroMant || 'abiertas', datos = await api.get(`/mantenciones${qs({ estado: filtro })}`);
@@ -396,7 +396,7 @@ const SECCIONES = [['usuarios', 'Usuarios', secUsuarios], ['instalaciones', 'Ins
   ['dispositivos', 'Dispositivos y sensores', secDispositivos], ['tipos', 'Tipos de sensor', secTipos], ['reglas', 'Reglas de alerta', secReglas], ['seguimiento', 'Seguimiento de alertas', secSeguimiento], ['mantenciones', 'Mantenciones', secMantenciones], ['informes', 'Informes', secInformes],
   ['equipos', 'Equipos vinculados', secEquipos], ['parametros', 'Parámetros', secParametros], ['manual', 'Carga manual', secManual], ['auditoria', 'Auditoría', secAuditoria]];
 
-/* Pantalla «Administración» de la web (pestañas). */
+/* Pantalla "Administración" de la web (pestañas). */
 async function vAdministracion(clave) {
   const z = contenido.firstChild, cuerpo = el('div', {});
   vaciar(z).append(encabezado('Administración'), el('div', { class: 'pestanas', role: 'tablist' }, SECCIONES.map(([k, t]) => el('a', { href: `#/administracion/${k}`, role: 'tab', class: clave === k ? 'activa' : '' }, t))), cuerpo);

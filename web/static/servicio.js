@@ -1,6 +1,6 @@
 /* Servicio técnico, ubicación de los dispositivos y estadísticas. Las usan la web y la app móvil: cada función recibe el contenedor donde dibuja. */
 
-/* ---------------- Mapa (Google Maps con la clave del administrador; si no hay clave, un mapa incrustado simple) ---------------- */
+/*  Mapa (Google Maps con la clave del administrador; si no hay clave, un mapa incrustado simple)  */
 let _claveMapa;                                         // undefined = aún no consultada
 async function claveMapa() {
   if (_claveMapa === undefined) { try { _claveMapa = (await api.get('/config-mapa')).google_key || ''; } catch { _claveMapa = ''; } }
@@ -62,7 +62,7 @@ function mapaDispositivos(caja, puntos, { alto = 380, alElegir } = {}) {
   return ctl;
 }
 
-/* ---------------- Ubicación de los dispositivos ---------------- */
+/* Ubicación de los dispositivos  */
 async function vUbicacion(zona) {
   const jefe = ['administrador', 'supervisor'].includes(AQ.usuario.rol), lista = await api.get('/ubicaciones');
   const conGps = lista.filter((d) => d.ubicacion), caja = el('div', {}), tarjetas = el('div', { class: 'lista-ubic' });
@@ -104,7 +104,7 @@ async function vUbicacion(zona) {
     lista.length ? tarjetas : el('p', { class: 'ayuda' }, 'No hay dispositivos para mostrar.'));
 }
 
-/* ---------------- Solicitudes técnicas: la ve el técnico (lo suyo y la bolsa) y quienes las piden ---------------- */
+/*  Solicitudes técnicas: la ve el técnico (lo suyo y la bolsa) y quienes las piden  */
 async function vServicioTecnico(zona) {
   const rol = AQ.usuario.rol, esTec = rol === 'tecnico', puedePedir = ['encargado_cultivo', 'supervisor', 'administrador'].includes(rol);
   const filtro = zona.dataset.filtro || 'abiertas', lista = el('div', { class: 'lista-mantenciones' }), nueva = el('div', {});
@@ -132,7 +132,7 @@ async function vServicioTecnico(zona) {
   return { refrescar: () => cargar(false), cada: 15000 };
 }
 
-/* ---------------- Estadísticas ---------------- */
+/*  Estadísticas  */
 const kpi = (titulo, valor, nota) => el('div', { class: 'kpi' }, el('span', { class: 'kpi-tit' }, titulo), el('strong', {}, valor == null ? '—' : valor), nota ? el('small', { class: 'suave' }, nota) : null);
 const minTxt = (v) => (v == null ? null : v < 1 ? '< 1 min' : v < 60 ? `${fmt(v, 0)} min` : v < 1440 ? `${Math.floor(v / 60)} h ${Math.round(v % 60)} min` : `${fmt(v / 1440, 1)} días`);
 function barrasH(items, vacio = 'Sin datos en este período.') {

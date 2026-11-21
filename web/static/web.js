@@ -226,7 +226,7 @@ async function vComparacion() {
   await cargar();
 }
 
-/* ------------------------------------------------------------------ Mi cuenta (contraseña y segundo factor) */
+/*  Mi cuenta (contraseña y segundo factor) */
 async function vCuenta() {
   const z = contenido.firstChild, u = (await api.get('/auth/me')).usuario;
   AQ.usuario = { ...AQ.usuario, ...u };
@@ -268,7 +268,7 @@ async function vCuenta() {
     el('section', { class: 'panel-form' }, el('h3', {}, 'Segundo factor de autenticación'), msg2, zona2fa), await seccionEquipos());
 }
 
-/* ------------------------------------------------------------------ Simulación (administrador) */
+/*  Simulación (administrador) */
 async function vSimulacion() {
   const z = contenido.firstChild;
   const cargar = async () => {
