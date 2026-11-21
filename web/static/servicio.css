@@ -141,3 +141,35 @@
 .ot-cab { flex-wrap:wrap; }
 .ot-chip { white-space:normal; text-align:center; }
 .ot-nota,.ot-bloque p,.ot-fila span { overflow-wrap:anywhere; }
+
+/* ---------------------------------------------------------
+   8. ICONOS DE FALLAS, ESTADOS Y KPI
+   --------------------------------------------------------- */
+.ico-prob { width:1.9rem; height:1.65rem; margin-right:.4rem; }
+.ico-prob.grande { width:3rem; height:2.6rem; margin-right:.7rem; }
+.ico-estado { width:1.15rem; height:1.05rem; margin:0 .3rem 0 .1rem; }
+.ico-kpi { width:2.4rem; height:2.1rem; }
+.kpi { position:relative; }
+.kpi .ico-kpi { position:absolute; top:.55rem; right:.6rem; opacity:.95; }
+.alerta-tit { display:flex; align-items:center; gap:.2rem; }
+.m-alerta h3,.tarjeta-alerta h3 { display:flex; align-items:center; }
+
+/* ---------------------------------------------------------
+   9. PÁGINA «API Y CONEXIONES» (web, administrador)
+   --------------------------------------------------------- */
+.api-fb { display:flex; gap:1rem; align-items:flex-start; background:#fff; border:1px solid #dde3e7; border-left:5px solid #f5a623; border-radius:12px; padding:.9rem 1.1rem; margin:0 0 1rem; }
+.api-fb h3 { margin:0 0 .3rem; } .api-fb p { margin:.2rem 0; } .api-fb .boton-secundario { margin-top:.5rem; display:inline-flex; align-items:center; text-decoration:none; }
+.ico-api { width:4.4rem; height:3.8rem; flex:none; }
+.api-capas { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:1.2rem; align-items:start; }
+@media (max-width:1100px) { .api-capas { grid-template-columns:1fr; } }
+.api-fila { display:flex; gap:.6rem; align-items:center; padding:.5rem 0; border-top:1px solid #edf1ef; flex-wrap:wrap; }
+.api-ruta { display:grid; flex:1 1 240px; min-width:0; gap:.1rem; } .api-ruta code { font-weight:700; overflow-wrap:anywhere; }
+.api-met { font-size:.72rem; font-weight:800; border-radius:6px; padding:.2rem .5rem; min-width:3.6rem; text-align:center; background:#e1ecfb; color:#1565c0; }
+.api-met.m-POST { background:#e3f3e8; color:#1b6e3d; } .api-met.m-PATCH,.api-met.m-PUT { background:#fff1d6; color:#8a5a00; } .api-met.m-DELETE { background:#fdeaea; color:#a11d1d; }
+.api-q { font:inherit; font-size:.82rem; padding:.35rem .5rem; border:1px solid #cfd9d3; border-radius:8px; width:13rem; max-width:100%; box-sizing:border-box; }
+.api-probar { padding:.35rem .9rem; }
+.api-resultado { position:sticky; top:1rem; }
+.api-json { background:#10201a; color:#d6f5e4; border-radius:12px; padding:.9rem; max-height:70vh; overflow:auto; font-size:.8rem; white-space:pre-wrap; overflow-wrap:anywhere; margin:0; }
+
+/* Los iconos de la barra inferior no traen baldosa: sobre fondos oscuros (menú lateral y consola) llevan una clara */
+.lateral img.ico-img[src*="/tab-"],.modulo img.ico-img[src*="/tab-"] { background:#e6f6ec; border-radius:9px; padding:.18rem; box-sizing:border-box; }

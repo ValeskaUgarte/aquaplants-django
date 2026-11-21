@@ -309,7 +309,7 @@ function ordenTrabajo(m, alTerminar) {
     catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); mostrarAviso(mensajeError(e), 'error'); }
   };
   const btn = (txt, f, extra = '', icono = null) => el('button', { type: 'button', class: `ot-btn ${extra}`.trim(), onclick: f }, icono ? ICO(icono, 'ico-btn') : null, txt);
-  const cabecera = el('header', { class: 'ot-cab' }, ICO('servicio-tecnico', 'ico-ot'),
+  const cabecera = el('header', { class: 'ot-cab' }, ICO('visita-tecnico', 'ico-ot'),
     el('div', { class: 'ot-titulo' }, el('strong', {}, m.tipo_texto), el('span', { class: 'suave' }, m.accion_texto || '')),
     el('div', { class: 'ot-chips' }, el('span', { class: `ot-chip e-${m.estado}` }, m.estado_texto),
       m.en_bolsa ? el('span', { class: 'ot-chip bolsa' }, 'Disponible para cualquier técnico') : m.tecnico_id === yo && abierta ? el('span', { class: 'ot-chip mia' }, 'Asignada a ti') : null));
@@ -327,7 +327,7 @@ function ordenTrabajo(m, alTerminar) {
     el('p', { class: 'suave' }, `Dispositivo ${m.dispositivo || '—'}${m.dispositivo_nombre ? ` (${m.dispositivo_nombre})` : ''}${CONEXION_TXT[m.estado_conexion] ? ` · ${CONEXION_TXT[m.estado_conexion]}` : ''}`),
     m.direccion ? el('p', {}, `Dirección: ${m.direccion}`) : null,
     u ? el('div', { class: 'ot-botones' }, el('a', { class: 'ot-btn primario', href: enlaceRuta(u), target: '_blank', rel: 'noopener' }, ICO('ubicacion', 'ico-btn'), 'Cómo llegar'),
-      el('a', { class: 'ot-btn', href: enlaceMapa(u), target: '_blank', rel: 'noopener' }, 'Ver en el mapa'))
+      el('a', { class: 'ot-btn', href: enlaceMapa(u), target: '_blank', rel: 'noopener' }, ICO('ver-maps', 'ico-btn'), 'Ver en Google Maps'))
       : el('p', { class: 'suave' }, 'El equipo todavía no informó su posición: guíate por la dirección.'),
     u ? el('p', { class: 'suave' }, `Posición ${u.origen === 'manual' ? 'indicada a mano' : 'del GPS'}, ${hace(u.actualizada_en)}.`) : null);
   const nodo = el('article', { class: `ot ${m.estado}`, id: `ot-${m.id}` }, cabecera, pasos, porque, donde);
@@ -576,6 +576,20 @@ const opciones = (lista, valor, texto) => (lista || []).map((x) => ({ valor: x[v
 
 /*  Marca: el logo de AquaPlants (reemplaza al emoji de hoja)  */
 const logo = (clase = 'logo', completo = false) => el('img', { class: clase, src: completo ? '/static/logo-aquaplants.png' : '/static/logo-marca.png', alt: 'AquaPlants', draggable: 'false' });
+/* Icono de cada falla según su título (reglas de alerta) y de cada estado de la alerta. */
+const ICONOS_PROBLEMA = [[/emergencia de agua/, 'emergencia-agua'], [/exceso de agua|desborde/, 'exceso-agua'], [/nivel de agua/, 'falta-agua'], [/caudal|bomba/, 'falla-bomba'],
+  [/nitrogeno/, 'falta-nitrogeno'], [/nutrientes altos|exceso de nutrientes/, 'exceso-nutrientes'], [/nutrientes|fosforo|potasio/, 'falta-nutrientes'], [/helada/, 'helada'],
+  [/falta de luz|pocas horas de luz/, 'falta-luz'], [/exceso de luz/, 'exceso-luz'], [/ph.*acido/, 'ph-acido'], [/ph.*alcalino/, 'ph-alcalino'], [/co[2\u2082]/, 'gas-co2'],
+  [/amoniaco/, 'gas-amoniaco'], [/humedad.*alta/, 'humedad-alta'], [/humedad.*baja/, 'humedad-baja'], [/temperatura/, 'temperatura-alta']];
+const nombreIconoProblema = (a) => {
+  if (a.tipo === 'sin_comunicacion') return 'sin-comunicacion-prolongada';
+  const t = (a.problema || a.mensaje || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const f = ICONOS_PROBLEMA.find(([re]) => re.test(t));
+  return f ? f[1] : 'alerta-detectada';
+};
+const iconoProblema = (a, clase = '') => ICO(nombreIconoProblema(a), `ico-prob ${clase}`.trim());
+const ICONO_ESTADO_FALLA = { activa: 'nadie-reviso', reconocida: 'en-revision', revisada: 'falta-confirmar', resuelta: 'resueltas' };
+const iconoEstadoFalla = (e) => ICO(ICONO_ESTADO_FALLA[e] || 'pendiente', 'ico-estado');
 const tituloAlerta = (a) => `${a.severidad === 'emergencia' && a.tipo !== 'sin_comunicacion' ? '🚨 EMERGENCIA · ' : ''}${a.problema || (a.tipo === 'sin_comunicacion' ? 'Dispositivo sin comunicación' : 'Valor fuera de rango')}`;
 
 /*  Equipo (celular o navegador) y puente con la app Android  */

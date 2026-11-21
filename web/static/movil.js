@@ -137,8 +137,8 @@ function estadoDispositivo(c) {
   if (!f.length && !u) return null;
   return el('div', { class: 'fallas' },
     f.map((x) => el('div', { class: `falla ${x.estado}` },
-      el('strong', {}, tituloAlerta(x)), ` · ${ETIQUETA_FALLA[x.estado] || x.estado}${x.por ? ` (${x.por})` : ''}${x.no_solucionado ? ' · aún sin solución' : ''}`)),
-    u ? el('div', { class: 'falla resuelta' }, el('strong', {}, `✔ Solucionado: ${u.problema || 'falla'}`),
+      el('strong', {}, iconoProblema(x), tituloAlerta(x)), iconoEstadoFalla(x.estado), ` ${ETIQUETA_FALLA[x.estado] || x.estado}${x.por ? ` (${x.por})` : ''}${x.no_solucionado ? ' · aún sin solución' : ''}`)),
+    u ? el('div', { class: 'falla resuelta' }, el('strong', {}, ICO('resueltas', 'ico-estado'), `Solucionado: ${u.problema || 'falla'}`),
       el('div', { class: 'nota' }, [u.auto ? 'se resolvió sola (valor normal)' : '', u.solucion_por ? `solución de ${u.solucion_por}` : '', u.por ? `confirmó ${u.por}` : '', hace(u.en)].filter(Boolean).join(' · '))) : null);
 }
 function tarjetaCultivo(c) {
@@ -155,7 +155,7 @@ function tarjetaCultivo(c) {
 }
 function tarjetaAlerta(a, alTerminar) {
   return el('div', { class: `tarjeta alerta ${a.tipo === 'sin_comunicacion' ? 'critica' : ''} ${a.estado}` },
-    el('div', { class: 'fila' }, el('h3', {}, tituloAlerta(a)), el('span', { class: `chip ${a.estado}` }, ETIQUETA[a.estado] || a.estado)),
+    el('div', { class: 'fila' }, el('h3', {}, iconoProblema(a, 'grande'), tituloAlerta(a)), el('span', { class: `chip ${a.estado}` }, ETIQUETA[a.estado] || a.estado)),
     el('div', { class: 'meta' }, `${a.cultivo || a.instalacion} · ${[a.dispositivo_codigo, a.sensor_codigo].filter(Boolean).join(' · ')} · ${fechaHora(a.creada_en)}`),
     el('div', { class: 'msg' }, a.mensaje),
     a.solucion_cuestionada && a.estado !== 'resuelta' ? el('span', { class: 'chip cuestionada' }, 'Solución cuestionada') : null,
@@ -319,7 +319,7 @@ async function hSimulacion(cuerpo, h, preseleccion) {
     campo('Cultivo / dispositivo', disp),
     el('div', { class: 'rejilla-botones' }, s.escenarios.map((e) => el('button', { type: 'button', class: `boton sec ${e.codigo === 'sin_comunicacion' ? 'peligro' : ''}`,
       onclick: () => ejecutar({ accion: 'escenario', escenario: e.codigo }, `Falla provocada: ${e.etiqueta}`) }, e.etiqueta))),
-    el('button', { type: 'button', class: 'boton', onclick: () => ejecutar({ accion: 'reparar' }, 'Falla terminada en el dispositivo simulado') }, '🔧 Terminar la falla de este dispositivo'),
+    el('button', { type: 'button', class: 'boton', onclick: () => ejecutar({ accion: 'reparar' }, 'Falla terminada en el dispositivo simulado') }, ICO('terminar-falla', 'ico-btn'), 'Terminar la falla de este dispositivo'),
     el('h2', {}, 'Estado de los dispositivos simulados'),
     ...s.dispositivos.map((d) => el('div', { class: 'tarjeta' }, el('div', { class: 'fila' }, el('strong', {}, `${d.cultivo} · ${d.codigo}`),
       el('span', { class: `chip ${d.escenario ? 'critica' : 'ok'}` }, d.escenario ? (etiqueta[d.escenario] || d.escenario) : 'Normal')),

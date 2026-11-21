@@ -105,6 +105,34 @@ async function vUbicacion(zona) {
 }
 
 /*  Solicitudes técnicas: la ve el técnico (lo suyo y la bolsa) y quienes las piden  */
+/*  API y conexiones (solo administrador): catálogo de rutas con pruebas de lectura y estado de Firebase  */
+async function vApi(zona) {
+  const d = await api.get('/documentacion'), fb = d.firebase;
+  const resultado = el('pre', { class: 'api-json' }, 'Elige «Probar» en una ruta GET para ver su respuesta aquí.');
+  const probar = async (ruta, extra, boton) => {
+    boton.disabled = true; resultado.textContent = `GET ${ruta}${extra}\n\nConsultando…`;
+    try {
+      const r = await api.get(ruta.replace(/^\/api/, '') + extra), txt = JSON.stringify(r, null, 2);
+      resultado.textContent = `GET ${ruta}${extra}\n\n${txt.length > 6000 ? `${txt.slice(0, 6000)}\n… (recortado: ${fmt(txt.length, 0)} caracteres)` : txt}`;
+    } catch (e) { resultado.textContent = `GET ${ruta}${extra}\n\nError: ${mensajeError(e)}`; }
+    boton.disabled = false; resultado.scrollIntoView({ block: 'nearest' });
+  };
+  const fila = (r) => {
+    const consulta = r.metodo === 'GET' && r.ejemplo !== null && !r.ruta.includes('{') ? el('input', { type: 'text', class: 'api-q', value: r.ejemplo, 'aria-label': `Parámetros de ${r.ruta}`, placeholder: '?parametro=valor' }) : null;
+    const b = consulta ? el('button', { type: 'button', class: 'boton-secundario api-probar', onclick: (e) => probar(r.ruta, consulta.value.trim(), e.currentTarget) }, 'Probar') : null;
+    return el('div', { class: 'api-fila' }, el('span', { class: `api-met m-${r.metodo}` }, r.metodo), el('div', { class: 'api-ruta' }, el('code', {}, r.ruta), el('span', { class: 'suave' }, r.para), el('small', { class: 'suave' }, `Quién: ${r.quien}`)), consulta, b);
+  };
+  const enNube = fb.modo === 'firebase';
+  const tarjetaFb = el('section', { class: 'api-fb' }, ICO('firebase', 'ico-api'), el('div', {},
+    el('h3', {}, 'Conexión con Firebase Realtime Database'),
+    el('p', {}, enNube ? `Conectado a la nube${fb.proyecto ? ` · proyecto «${fb.proyecto}»` : ''}.` : 'Modo local: el sistema usa una base compatible dentro de este servidor (sin internet). Para usar la nube, escribe AQ_FIREBASE_URL en el archivo .env del servidor.'),
+    el('p', { class: 'suave' }, 'Es seguro vincularla si las reglas de la base bloquean el acceso directo (firebase/database.rules.json) y el archivo de credenciales queda solo en el servidor. Por eso la dirección y las claves no se ingresan ni se guardan desde esta página.'),
+    fb.consola ? el('a', { class: 'boton-secundario', href: fb.consola, target: '_blank', rel: 'noopener' }, ICO('firebase', 'ico-btn'), 'Abrir la consola de Firebase') : null));
+  vaciar(zona).append(encabezado('API y conexiones'),
+    el('p', { class: 'ayuda' }, `Todas las rutas devuelven JSON y usan tu sesión actual. ${d.nota}`), tarjetaFb,
+    el('div', { class: 'api-capas' }, el('div', {}, ...d.grupos.map((g) => el('section', { class: 'bloque' }, el('h3', {}, g.grupo), ...g.rutas.map(fila)))), el('div', { class: 'api-resultado' }, el('h3', {}, 'Respuesta'), resultado)));
+}
+
 /*  Órdenes de trabajo del técnico: lo nuevo (asignado o en la bolsa), lo que está haciendo y lo ya cerrado  */
 async function vOrdenesTecnico(zona) {
   const kp = el('div', { class: 'kpis ot-kpis' }), seg = el('div', { class: 'segmento ot-seg' }), lista = el('div', { class: 'lista-ot' });
@@ -119,7 +147,7 @@ async function vOrdenesTecnico(zona) {
     if (AQ.abrirOrden) { const o = todas.find((m) => m.id === AQ.abrirOrden); if (o) zona.dataset.seg = o.estado === 'pendiente' ? 'nuevas' : o.estado === 'en_curso' ? 'curso' : 'historial'; }
     if (!zona.dataset.seg) zona.dataset.seg = g.curso.length ? 'curso' : g.nuevas.length ? 'nuevas' : 'historial';
     const actual = zona.dataset.seg, items = g[actual];
-    vaciar(kp).append(kpi('Nuevas', g.nuevas.length, 'por aceptar'), kpi('En curso', g.curso.length, 'tus visitas'), kpi('Cerradas hoy', hechasHoy));
+    vaciar(kp).append(kpi('Nuevas', g.nuevas.length, 'por aceptar', 'pendiente'), kpi('En curso', g.curso.length, 'tus visitas', 'en-revision'), kpi('Cerradas hoy', hechasHoy, null, 'resueltas'));
     vaciar(seg).append(...[['nuevas', 'Nuevas'], ['curso', 'En curso'], ['historial', 'Historial']].map(([id, t]) =>
       el('button', { type: 'button', class: actual === id ? 'activo' : '', onclick: () => { zona.dataset.seg = id; AQ.editando = false; pintar(); } }, `${t} (${g[id].length})`)));
     vaciar(lista).append(items.length ? items.slice(0, actual === 'historial' ? 30 : 100).map((m) => ordenTrabajo(m, () => { AQ.abrirOrden = m.id; return cargar(true); })) : el('p', { class: 'ayuda ot-vacio' }, VACIO[actual]));
@@ -155,7 +183,7 @@ async function vServicioTecnico(zona) {
 }
 
 /*  Estadísticas  */
-const kpi = (titulo, valor, nota) => el('div', { class: 'kpi' }, el('span', { class: 'kpi-tit' }, titulo), el('strong', {}, valor == null ? '—' : valor), nota ? el('small', { class: 'suave' }, nota) : null);
+const kpi = (titulo, valor, nota, icono) => el('div', { class: 'kpi' }, icono ? ICO(icono, 'ico-kpi') : null, el('span', { class: 'kpi-tit' }, titulo), el('strong', {}, valor == null ? '—' : valor), nota ? el('small', { class: 'suave' }, nota) : null);
 const minTxt = (v) => (v == null ? null : v < 1 ? '< 1 min' : v < 60 ? `${fmt(v, 0)} min` : v < 1440 ? `${Math.floor(v / 60)} h ${Math.round(v % 60)} min` : `${fmt(v / 1440, 1)} días`);
 function barrasH(items, vacio = 'Sin datos en este período.') {
   if (!items.length) return el('p', { class: 'suave' }, vacio);
@@ -179,16 +207,16 @@ async function vEstadisticas(zona) {
   const dias = Number(zona.dataset.dias || 30), e = await api.get(`/estadisticas${qs({ dias })}`), m = e.mantenciones;
   const selDias = el('select', { onchange: (ev) => { zona.dataset.dias = ev.target.value; vEstadisticas(zona); } }, [7, 30, 90, 180].map((d) => el('option', { value: d, selected: d === dias }, `Últimos ${d} días`)));
   const bloqueMant = el('section', { class: 'card-informe' }, el('h4', {}, 'Servicio técnico'),
-    el('div', { class: 'kpis' }, kpi('Solicitudes', m.total), kpi('Abiertas ahora', m.abiertas, m.en_bolsa ? `${m.en_bolsa} en la bolsa` : null), kpi('Realizadas', m.completadas), kpi('Canceladas', m.canceladas),
+    el('div', { class: 'kpis' }, kpi('Solicitudes', m.total, null, 'visita-tecnico'), kpi('Abiertas ahora', m.abiertas, m.en_bolsa ? `${m.en_bolsa} en la bolsa` : null), kpi('Realizadas', m.completadas), kpi('Canceladas', m.canceladas),
       kpi('Respuesta media', minTxt(m.respuesta_min), 'hasta que se acepta'), kpi('Resolución media', minTxt(m.resolucion_min), 'hasta que se cierra')),
     el('div', { class: 'dos-col' }, el('div', {}, el('h5', {}, 'Cómo terminaron'), barrasH(m.por_resolucion)), el('div', {}, el('h5', {}, 'Qué se pidió'), barrasH(m.por_accion)), el('div', {}, el('h5', {}, 'Tipo de falla'), barrasH(m.por_tipo))));
   vaciar(zona);
   if (e.rol === 'tecnico') return zona.append(el('div', { class: 'barra-filtros' }, el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Período'), selDias)), bloqueMant);
   const k = e.kpis, d = e.dispositivos, auto = k.resueltas ? Math.round((100 * k.automaticas) / k.resueltas) : null;
   zona.append(el('div', { class: 'barra-filtros' }, el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Período'), selDias)),
-    el('div', { class: 'kpis' }, kpi('Alertas', k.alertas, `${k.abiertas} sin resolver`), kpi('Resueltas', k.resueltas, auto == null ? null : `${auto} % solas`), kpi('Tiempo de respuesta', minTxt(k.respuesta_min), 'hasta reconocerla'),
-      kpi('Tiempo de resolución', minTxt(k.resolucion_min)), kpi('Soluciones cuestionadas', k.cuestionadas, 'la medición no las respaldó'), kpi('Cortes de comunicación', k.cortes), kpi('Movimientos de equipos', k.movimientos),
-      kpi('Dispositivos en línea', `${d.en_linea} de ${d.total}`, `${d.sin_comunicacion} sin comunicación · ${d.con_gps} con GPS`)),
+    el('div', { class: 'kpis' }, kpi('Alertas', k.alertas, `${k.abiertas} sin resolver`, 'alertas-abiertas'), kpi('Resueltas', k.resueltas, auto == null ? null : `${auto} % solas`, 'resueltas'), kpi('Tiempo de respuesta', minTxt(k.respuesta_min), 'hasta reconocerla'),
+      kpi('Tiempo de resolución', minTxt(k.resolucion_min)), kpi('Soluciones cuestionadas', k.cuestionadas, 'la medición no las respaldó'), kpi('Cortes de comunicación', k.cortes, null, 'perdio-comunicacion'), kpi('Movimientos de equipos', k.movimientos),
+      kpi('Dispositivos en línea', `${d.en_linea} de ${d.total}`, `${d.sin_comunicacion} sin comunicación · ${d.con_gps} con GPS`, 'dispositivos-en-linea')),
     el('section', { class: 'card-informe' }, el('h4', {}, 'Alertas por día'), graficoDias(e.serie)),
     el('div', { class: 'dos-col' }, el('section', { class: 'card-informe' }, el('h4', {}, 'Por tipo'), barrasH(e.por_tipo), el('h5', {}, 'Por severidad'), barrasH(e.por_severidad)),
       el('section', { class: 'card-informe' }, el('h4', {}, 'Cultivos con más alertas'), barrasH(e.por_cultivo)),

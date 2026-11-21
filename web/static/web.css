@@ -344,3 +344,15 @@ tr:last-child td { border-bottom:0; }
 .ico-pest { width:1.5rem; height:1.35rem; }
 .cultivo .btn-pedir-tec { margin-top:.5rem; font-size:.85rem; padding:.4rem .8rem; }
 .encabezado .btn-pedir-tec { margin-left:auto; }
+
+/* Panel: todos los cultivos en una sola rejilla, 4 por fila en pantallas anchas */
+.cultivos { grid-template-columns:repeat(4,minmax(0,1fr)) !important; }
+.cultivos .lecturas { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (max-width:1399px) { .cultivos { grid-template-columns:repeat(3,minmax(0,1fr)) !important; } }
+@media (max-width:1000px) { .cultivos { grid-template-columns:repeat(2,minmax(0,1fr)) !important; } }
+@media (max-width:640px)  { .cultivos { grid-template-columns:1fr !important; } }
+.cultivo-inst { display:flex; align-items:center; font-size:.8rem; color:var(--suave); margin:.15rem 0 .2rem; }
+.indicadores > div.ind { display:flex; align-items:center; gap:.8rem; }
+.indicadores .ind > div { min-width:0; }
+.ico-kpi { flex:none; }
+.indicadores .ico-kpi { width:3rem; height:2.6rem; }

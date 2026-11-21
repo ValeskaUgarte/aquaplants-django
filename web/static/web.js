@@ -13,13 +13,13 @@ function armar() {
     ['#/seguimiento', 'Seguimiento de alertas', !tec && rol !== 'encargado_cultivo', 'bitacora'],
     ['#/servicio', 'Servicio técnico', !tec, 'servicio-tecnico'], ['#/ubicacion', 'Ubicación', true, 'ubicacion'], ['#/estadisticas', tec ? 'Mis estadísticas' : 'Estadísticas', true, 'estadisticas'],
     ['#/comparacion', 'Comparación', !tec && rol !== 'encargado_cultivo', 'comparar'], ['#/administracion/informes', 'Informes', rol === 'administrador', 'informes'],
-    ['#/simulacion', 'Simulación', rol === 'administrador', 'simular-fallas'], ['#/administracion', 'Administración', rol === 'administrador', 'parametros'], ['#/cuenta', 'Mi cuenta', true, 'tab-cuenta']];
+    ['#/simulacion', 'Simulación', rol === 'administrador', 'simular-fallas'], ['#/administracion', 'Administración', rol === 'administrador', 'parametros'], ['#/api', 'API y conexiones', rol === 'administrador', 'api'], ['#/cuenta', 'Mi cuenta', true, 'tab-cuenta']];
   contenido = el('main', { class: 'contenido' });
   raiz.append(el('div', { class: 'aplicacion' },
     el('aside', { class: 'lateral' }, el('div', { class: 'marca-fila' }, el('div', { class: 'marca-logo' }, logo('logo-lateral', true)),
       campana((n) => { AQ.abrirOrden = n.mantencion_id || null; location.hash = destinoAviso(n) === 'servicio' ? (rol === 'tecnico' ? '#/' : '#/servicio') : '#/alertas'; }, 'campana-lateral')),
       el('nav', { 'aria-label': 'Principal', id: 'menu' }, enlaces.filter((e) => e[2]).map(([h, t, , ico]) => el('a', { href: h, 'data-h': h }, ICO(ico, 'ico-nav'), t)),
-        rol === 'administrador' ? el('a', { href: '/admin', class: 'externo' }, 'Consola Django ↗') : null),
+        rol === 'administrador' ? el('a', { href: '/admin', class: 'externo' }, ICO('consola-django', 'ico-nav'), 'Consola Django ↗') : null),
       el('div', { class: 'usuario' }, el('strong', {}, u.nombre), el('span', {}, ROL[rol]),
         el('button', { type: 'button', class: 'boton-texto', onclick: () => { clearInterval(temporizador); cerrarSesion(); } }, 'Cerrar sesión'))),
     contenido));
@@ -40,7 +40,7 @@ async function enrutar() {
     '': () => (rol === 'tecnico' ? vServicioTecnico(zona) : vPanel()), servicio: () => vServicioTecnico(zona), ubicacion: () => vUbicacion(zona), estadisticas: () => vEstadisticas(zona),
     instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(), seguimiento: () => (rol === 'encargado_cultivo' ? vPanel() : vSeguimiento()),
     comparacion: () => (rol === 'encargado_cultivo' ? vPanel() : vComparacion()), simulacion: () => (rol === 'administrador' ? vSimulacion() : vPanel()),
-    administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : vPanel()), cuenta: () => vCuenta(),
+    administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : vPanel()), cuenta: () => vCuenta(), api: () => (rol === 'administrador' ? vApi(zona) : vPanel()),
   };
   const zona = el('div', {});
   vaciar(contenido).append(zona);
@@ -56,14 +56,15 @@ const encabezado = (titulo, ...extra) => el('header', { class: 'encabezado' }, e
 /*  Panel general */
 const tarjetaLectura = (l) => el('div', { class: 'lectura' }, el('span', { class: 'nm' }, l.tipo_nombre), el('strong', {}, l.valor == null ? '—' : `${fmtLectura(l.valor)} ${l.unidad}`));
 
-function tarjetaCultivo(c, lecturas, iid) {
+function tarjetaCultivo(c, lecturas, iid, inst = null) {
   return el('a', { class: 'cultivo', href: `#/instalacion/${iid}` },
     el('div', { class: 'cultivo-cab' }, el('h4', {}, c.nombre), estado(c.estado_conexion)),
+    inst ? el('div', { class: 'cultivo-inst' }, ICO('instalaciones-kpi', 'ico-estado'), `${inst.nombre} · ${inst.codigo}`) : null,
     el('div', { class: 'suave' }, `Dispositivo ${c.dispositivo_codigo}`, c.alertas_abiertas ? el('strong', { class: 'alerta-n' }, ` · ${c.alertas_abiertas} alerta(s)`) : null),
     botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }),
     (c.fallas || []).length ? el('div', { class: 'fallas-web' }, c.fallas.map((f) => el('div', { class: `falla-web ${f.estado}` },
-      el('strong', {}, tituloAlerta(f)), ` · ${ETIQUETA_FALLA[f.estado] || f.estado}${f.por ? ` (${f.por})` : ''}${f.no_solucionado ? ' · aún sin solución' : ''}`))) : null,
-    c.ultima_solucion ? el('div', { class: 'falla-web resuelta' }, el('strong', {}, `✔ Solucionado: ${c.ultima_solucion.problema || 'falla'}`),
+      el('strong', {}, iconoProblema(f), tituloAlerta(f)), iconoEstadoFalla(f.estado), ` ${ETIQUETA_FALLA[f.estado] || f.estado}${f.por ? ` (${f.por})` : ''}${f.no_solucionado ? ' · aún sin solución' : ''}`))) : null,
+    c.ultima_solucion ? el('div', { class: 'falla-web resuelta' }, el('strong', {}, ICO('resueltas', 'ico-estado'), `Solucionado: ${c.ultima_solucion.problema || 'falla'}`),
         ` · ${[c.ultima_solucion.auto ? 'se resolvió sola (valor normal)' : '', c.ultima_solucion.solucion_por ? 'solución de ' + c.ultima_solucion.solucion_por : '', c.ultima_solucion.por ? 'confirmó ' + c.ultima_solucion.por : '', hace(c.ultima_solucion.en)].filter(Boolean).join(' · ')}`) : null,
     el('div', { class: 'lecturas' }, lecturas.map(tarjetaLectura)));
 }
@@ -73,16 +74,14 @@ async function vPanel(cont) {
   const cargar = async () => {
     const d = await api.get('/panel');
     const estados = await Promise.all(d.instalaciones.map((i) => api.get(`/estado-actual${qs({ instalacion_id: i.id })}`)));
-    const t = d.totales;
+    const t = d.totales, todos = d.instalaciones.flatMap((i, k) => i.cultivos.map((c) => ({ c, i, k })));
     vaciar(zona).append(
       encabezado('Panel general', botonPedirTecnico({ alTerminar: cargar }), el('span', { class: 'insignia' }, `Base de datos: ${d.modo_bd === 'firebase' ? 'Firebase Realtime Database' : 'modo local'}`)),
       el('dl', { class: 'indicadores' },
-        [['Instalaciones', t.instalaciones], ['Dispositivos en línea', `${t.en_linea} de ${t.dispositivos}`], ['Sin comunicación', t.sin_comunicacion],
-          ['Alertas abiertas', t.alertas_abiertas], ['Mediciones (24 h)', fmt(t.mediciones_24h, 0)]].map(([k, v]) => el('div', {}, el('dt', {}, k), el('dd', {}, v)))),
-      ...d.instalaciones.map((i, k) => el('section', { class: 'bloque' },
-        el('h3', {}, el('a', { href: `#/instalacion/${i.id}` }, i.nombre), el('small', {}, ` · ${i.codigo}`)),
-        el('div', { class: 'cultivos' }, i.cultivos.length ? i.cultivos.map((c) => tarjetaCultivo(c, estados[k].filter((e) => e.cultivo_id === c.id), i.id))
-          : el('p', { class: 'ayuda' }, 'Esta instalación aún no tiene cultivos con dispositivo.')))),
+        [['Instalaciones', t.instalaciones, 'instalaciones-kpi'], ['Dispositivos en línea', `${t.en_linea} de ${t.dispositivos}`, 'dispositivos-en-linea'], ['Sin comunicación', t.sin_comunicacion, 'sin-comunicacion'],
+          ['Alertas abiertas', t.alertas_abiertas, 'alertas-abiertas'], ['Mediciones (24 h)', fmt(t.mediciones_24h, 0), 'mediciones-24h']].map(([k, v, ico]) => el('div', { class: 'ind' }, ICO(ico, 'ico-kpi'), el('div', {}, el('dt', {}, k), el('dd', {}, v))))),
+      todos.length ? el('div', { class: 'cultivos' }, todos.map(({ c, i, k }) => tarjetaCultivo(c, estados[k].filter((e) => e.cultivo_id === c.id), i.id, d.instalaciones.length > 1 ? i : null)))
+        : d.instalaciones.length ? el('p', { class: 'ayuda' }, 'Tus instalaciones aún no tienen cultivos con dispositivo.') : null,
       !d.instalaciones.length ? el('p', { class: 'ayuda' }, 'No tienes instalaciones asignadas. Solicita acceso a un administrador.') : null);
   };
   await cargar();
@@ -173,7 +172,7 @@ function tarjetaAlertaWeb(f, alTerminar, conInstalacion) {
   const dato = (k, v) => (v ? el('div', {}, el('dt', {}, k), el('dd', {}, v)) : null);
   return el('article', { class: `alerta-web ${f.estado} sev-${f.severidad}` },
     el('header', { class: 'alerta-web-cab' },
-      el('div', {}, el('h3', {}, tituloAlerta(f)), el('div', { class: 'suave' }, f.mensaje)),
+      el('div', { class: 'alerta-tit' }, iconoProblema(f, 'grande'), el('div', {}, el('h3', {}, tituloAlerta(f)), el('div', { class: 'suave' }, f.mensaje))),
       el('div', { class: 'alerta-web-chips' }, estado(f.estado), f.resuelta_auto ? el('span', { class: 'etiqueta auto', title: 'El valor volvió a la normalidad y no hizo falta revisarla' }, 'Automática') : null,
         f.solucion_cuestionada ? el('span', { class: 'etiqueta cuestionada', title: 'La medición no respaldó una solución informada' }, 'Solución cuestionada') : null,
         f.mantencion ? el('span', { class: `etiqueta m-${f.mantencion.estado}` }, `Mantención: ${f.mantencion.estado_texto.toLowerCase()}`) : null)),
@@ -289,7 +288,7 @@ async function vSimulacion() {
           s.dispositivos.map((d) => el('option', { value: d.codigo, selected: d.codigo === vSimulacion.disp }, `${d.cultivo} · ${d.codigo}`)))),
         el('div', { class: 'botones-escenario' }, (s.escenarios || []).map((e) => el('button', { type: 'button', class: 'boton-secundario', disabled: !s.activa,
           onclick: () => ejecutar('escenario', { escenario: e.codigo, dispositivo: vSimulacion.disp }, `Falla provocada: ${e.etiqueta}`) }, e.etiqueta)),
-          el('button', { type: 'button', class: 'boton', onclick: () => ejecutar('reparar', { dispositivo: vSimulacion.disp }, 'Falla terminada') }, 'Terminar la falla'))),
+          el('button', { type: 'button', class: 'boton', onclick: () => ejecutar('reparar', { dispositivo: vSimulacion.disp }, 'Falla terminada') }, ICO('terminar-falla', 'ico-btn'), 'Terminar la falla'))),
       el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: () => ejecutar(s.activa ? 'pausar' : 'reanudar') }, s.activa ? 'Pausar simulación' : 'Reanudar simulación'),
         el('button', { class: 'boton-secundario', type: 'button', disabled: !s.activa, title: 'Una falla al azar en cada cultivo: genera alertas', onclick: () => ejecutar('anomalia', null, 'Fallas al azar provocadas') }, 'Falla al azar en todos'),
         el('button', { class: 'boton-secundario', type: 'button', disabled: !s.activa, title: 'Los dispositivos guardan en cola local y sincronizan al volver', onclick: () => ejecutar('corte') }, 'Cortar la red (45 s)')),
