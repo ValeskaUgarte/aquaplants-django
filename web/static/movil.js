@@ -19,7 +19,7 @@ function armar() {
     el('span', { class: 'cab-der' }, el('span', { class: 'nota' }, cabPunto, RELE ? 'vía Firebase' : 'en vivo'), campana((n) => {
       cerrarTodo(); clearInterval(est.timerTab);
       if (!esTecnico() && destinoAviso(n) === 'servicio') { abrirPantalla('Servicio técnico', (c) => vServicioTecnico(c)); return; }
-      AQ.abrirOrden = n.mantencion_id || null;
+      AQ.abrirOrden = n.mantencion_id || null; if (!esTecnico()) AQ.abrirAlerta = n.alerta_id || null;
       est.tab = esTecnico() ? 'solicitudes' : 'alertas'; est.montada = null; pintarTabs(); pintar();
     }))), contenido, tabs);
   est.tab = esTecnico() ? 'solicitudes' : 'hoy'; est.montada = null; pintarTabs(); refrescar();
@@ -120,29 +120,26 @@ const todosLosCultivos = () => datos.panel.instalaciones.flatMap((i, k) => culti
 
 /*  piezas  */
 function nivelCultivo(c) {
-  const f = c.fallas || [];
+  const f = fallasVivas(c);
   if (c.estado_conexion === 'sin_comunicacion' || f.some((x) => x.estado === 'activa')) return 'critica';
   return f.length ? 'advertencia' : 'ok';
 }
 function chipCultivo(c) {
-  const f = c.fallas || [];
+  const f = fallasVivas(c);
   const t = c.estado_conexion === 'sin_comunicacion' ? 'Sin comunicación'
-    : f.some((x) => x.estado === 'activa') ? 'Con falla' : f.some((x) => x.estado === 'reconocida') ? 'En revisión'
-      : f.length ? 'Falta confirmar' : c.estado_conexion === 'en_linea' ? 'Operando normal' : 'Sin datos';
+    : f.some((x) => x.estado === 'activa') ? 'Con falla' : f.length ? 'En revisión'
+      : c.estado_conexion === 'en_linea' ? 'Operando normal' : 'Sin datos';
   return el('span', { class: `chip ${nivelCultivo(c)}` }, t);
 }
-/* Estado del dispositivo: qué falla tiene, quién la atiende, o la última solución confirmada. */
+/* Falla que se está atendiendo ahora (una línea, sin el proceso): al tocarla se abre esa alerta. Lo solucionado o por confirmar no se muestra aquí. */
 function estadoDispositivo(c, max = null) {
-  const f = c.fallas || [], u = c.ultima_solucion;
-  if (!f.length && !u) return null;
+  const f = fallasVivas(c);
+  if (!f.length) return null;
   const visibles = max ? f.slice(0, max) : f, ocultas = f.length - visibles.length;
   return el('div', { class: 'fallas' },
     visibles.map((x) => el('div', { class: `falla ${x.estado} enlace`, role: 'link', tabindex: '0', onclick: (e) => { e.stopPropagation(); irAAlerta(x.id); } },
-      el('strong', {}, iconoProblema(x), tituloAlerta(x)), iconoEstadoFalla(x.estado), ` ${ETIQUETA_FALLA[x.estado] || x.estado}${x.por ? ` (${x.por})` : ''}${x.no_solucionado ? ' · aún sin solución' : ''}`,
-      el('span', { class: 'ver-alerta' }, ' · Ver alerta ›'))),
-    ocultas > 0 ? el('div', { class: 'falla mas enlace', role: 'link', tabindex: '0', onclick: (e) => { e.stopPropagation(); irAAlerta(f[0].id); } }, `+${ocultas} alerta${ocultas === 1 ? '' : 's'} más de este equipo · ver en Alertas ›`) : null,
-    u ? el('div', { class: 'falla resuelta' }, el('strong', {}, ICO('resueltas', 'ico-estado'), `Solucionado: ${u.problema || 'falla'}`),
-      el('div', { class: 'nota' }, [u.auto ? 'se resolvió sola (valor normal)' : '', u.solucion_por ? `solución de ${u.solucion_por}` : '', u.por ? `confirmó ${u.por}` : '', hace(u.en)].filter(Boolean).join(' · '))) : null);
+      el('strong', {}, iconoProblema(x), tituloAlerta(x)), el('span', { class: 'ver-alerta' }, ' · Ver ›'))),
+    ocultas > 0 ? el('div', { class: 'falla mas enlace', role: 'link', tabindex: '0', onclick: (e) => { e.stopPropagation(); irAAlerta(f[0].id); } }, `+${ocultas} más · ver en Alertas ›`) : null);
 }
 /* Lleva a la pestaña Alertas mostrando esa alerta (la primera de la lista, resaltada). */
 function irAAlerta(id) {
@@ -167,8 +164,10 @@ function tarjetaAlerta(a, alTerminar) {
     el('div', { class: 'msg' }, a.mensaje),
     a.solucion_cuestionada && a.estado !== 'resuelta' ? el('span', { class: 'chip cuestionada' }, 'Solución cuestionada') : null,
     a.mantencion ? el('span', { class: `chip m-${a.mantencion.estado}` }, `Mantención: ${a.mantencion.estado_texto.toLowerCase()}`) : null,
-    ...trazaAlerta(a),
-    accionesAlerta(a, async () => { await refrescar(); if (alTerminar) await alTerminar(); }, 'boton'));
+    accionesAlerta(a, async () => { await refrescar(); if (alTerminar) await alTerminar(); }, 'boton'),
+    // el proceso (quién hizo qué) queda a un toque: primero lo que hay que hacer, después el detalle
+    el('details', { class: 'proceso', open: !!(est.procesos && est.procesos.has(a.id)), ontoggle: (e) => { est.procesos = est.procesos || new Set(); est.procesos[e.target.open ? 'add' : 'delete'](a.id); } },
+      el('summary', {}, 'Ver proceso y seguimiento'), ...trazaAlerta(a)));
 }
 const campo = (etiqueta, entrada, ayuda) => el('label', { class: 'campo-m' }, el('span', {}, etiqueta), entrada, ayuda ? el('small', { class: 'nota' }, ayuda) : null);
 const seleccion = (pares, valor) => el('select', {}, pares.map(([v, t]) => el('option', { value: v, selected: String(v) === String(valor ?? '') }, t)));
@@ -179,14 +178,15 @@ async function accion(fn, ok, despues) {
 
 /*  Hoy  */
 function vHoy() {
-  const t = datos.panel.totales, n = t.alertas_abiertas, todos = todosLosCultivos();
+  const t = datos.panel.totales, todos = todosLosCultivos();
+  const vivas = datos.abiertas.filter((a) => a.estado === 'activa' || a.estado === 'reconocida'), n = vivas.length;      // lo ya arreglado y por confirmar vive en Alertas
   const nivel = n || t.sin_comunicacion ? 'critica' : 'ok';
   vaciar(contenido).append(
-    el('div', { class: `banner ${nivel}` }, el('div', { class: 'grande' }, n ? `${n} ${n === 1 ? 'falla requiere' : 'fallas requieren'} atención` : 'Todo en orden'),
-      el('div', { class: 'peq' }, `${t.en_linea} de ${t.dispositivos} dispositivos en línea · ${todos.length} cultivos`)),
+    el('div', { class: `banner ${nivel}${n ? ' enlace' : ''}`, role: n ? 'link' : null, tabindex: n ? '0' : null, onclick: n ? () => irAAlerta(vivas[0].id) : null },
+      el('div', { class: 'grande' }, n ? `${n} ${n === 1 ? 'falla requiere' : 'fallas requieren'} atención` : 'Todo en orden'),
+      el('div', { class: 'peq' }, n ? `Toca para verla en Alertas · ${t.en_linea} de ${t.dispositivos} dispositivos en línea` : `${t.en_linea} de ${t.dispositivos} dispositivos en línea · ${todos.length} cultivos`)),
     puedePedirTecnico() ? el('button', { class: 'pedir-rapido', type: 'button', onclick: () => pedirTecnico({ alTerminar: refrescar }) }, ICO('servicio-tecnico', 'item-ico-img'),
       el('span', {}, el('strong', {}, 'Pedir técnico'), el('span', { class: 'nota' }, 'Arreglo, reemplazo, retiro o mantención de un equipo.'))) : null,
-    ...(n ? [el('h2', {}, 'Para atender ahora'), ...datos.abiertas.slice(0, 8).map((a) => tarjetaAlerta(a))] : []),
     el('h2', {}, 'Tus cultivos'), ...(todos.length ? todos.map(tarjetaCultivo) : [el('p', { class: 'nota' }, 'No tienes cultivos asignados.')]));
 }
 
@@ -229,7 +229,7 @@ function abrirCultivo(c0) {
 function cerrarYReabrir(c) { const h = pila[pila.length - 1]; if (h) h.recargar(); }
 
 /*  Alertas  */
-const FILTROS_ALERTA = [['abiertas', 'Abiertas'], ['revisada', 'Falta confirmar'], ['no_solucionadas', 'Sin solución'], ['resuelta', 'Resueltas']];
+const FILTROS_ALERTA = [['abiertas', 'Abiertas'], ['revisada', 'Por confirmar'], ['no_solucionadas', 'Sin solución'], ['resuelta', 'Resueltas']];
 async function vAlertas() {
   const filtro = est.filtro;
   const lista = filtro === 'abiertas' ? datos.abiertas : await api.get(`/alertas${qs({ estado: filtro, limite: 60 })}`);

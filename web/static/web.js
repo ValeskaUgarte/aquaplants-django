@@ -56,15 +56,15 @@ const encabezado = (titulo, ...extra) => el('header', { class: 'encabezado' }, e
 /*  Panel general */
 const tarjetaLectura = (l) => el('div', { class: 'lectura' }, el('span', { class: 'nm' }, l.tipo_nombre), el('strong', {}, l.valor == null ? '—' : `${fmtLectura(l.valor)} ${l.unidad}`));
 
-/* Falla más urgente del equipo: al tocarla se abre esa alerta en la sección Alertas (las demás se resumen en «+N más»). */
+/* Falla que se está atendiendo ahora (una línea, sin el proceso): al tocarla se abre esa alerta en Alertas.
+   Lo solucionado o por confirmar no se muestra en el panel: queda en Alertas, en el seguimiento, en los informes y en la auditoría. */
 function fallasWeb(c) {
-  const f = c.fallas || [];
+  const f = fallasVivas(c);
   if (!f.length) return null;
   const una = f[0], mas = f.length - 1;
   return el('div', { class: 'fallas-web' },
-    el('a', { class: `falla-web ${una.estado} enlace`, href: `#/alertas/${una.id}`, title: 'Ver esta alerta' }, el('strong', {}, iconoProblema(una), tituloAlerta(una)), iconoEstadoFalla(una.estado),
-      ` ${ETIQUETA_FALLA[una.estado] || una.estado}${una.por ? ` (${una.por})` : ''}${una.no_solucionado ? ' · aún sin solución' : ''}`, el('span', { class: 'ver-alerta' }, ' · Ver alerta ›')),
-    mas > 0 ? el('a', { class: 'falla-web mas enlace', href: '#/alertas' }, `+${mas} alerta${mas === 1 ? '' : 's'} más de este equipo · ver todas ›`) : null);
+    el('a', { class: `falla-web ${una.estado} enlace`, href: `#/alertas/${una.id}`, title: 'Ver esta alerta' }, el('strong', {}, iconoProblema(una), tituloAlerta(una)), el('span', { class: 'ver-alerta' }, ' · Ver ›')),
+    mas > 0 ? el('a', { class: 'falla-web mas enlace', href: '#/alertas' }, `+${mas} más · ver todas ›`) : null);
 }
 function tarjetaCultivo(c, lecturas, iid, inst = null) {
   const ir = () => { location.hash = `#/instalacion/${iid}`; };
@@ -72,11 +72,9 @@ function tarjetaCultivo(c, lecturas, iid, inst = null) {
     onkeydown: (e) => { if (e.key === 'Enter' && !e.target.closest('a,button')) ir(); } },
     el('div', { class: 'cultivo-cab' }, el('h4', {}, c.nombre), estado(c.estado_conexion)),
     inst ? el('div', { class: 'cultivo-inst' }, ICO('instalaciones-kpi', 'ico-estado'), `${inst.nombre} · ${inst.codigo}`) : null,
-    el('div', { class: 'suave' }, `Dispositivo ${c.dispositivo_codigo}`, c.alertas_abiertas ? el('strong', { class: 'alerta-n' }, ` · ${c.alertas_abiertas} alerta(s)`) : null),
+    el('div', { class: 'suave' }, `Dispositivo ${c.dispositivo_codigo}`, fallasVivas(c).length ? el('strong', { class: 'alerta-n' }, ` · ${fallasVivas(c).length} alerta(s)`) : null),
     botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }),
     fallasWeb(c),
-    c.ultima_solucion ? el('div', { class: 'falla-web resuelta' }, el('strong', {}, ICO('resueltas', 'ico-estado'), `Solucionado: ${c.ultima_solucion.problema || 'falla'}`),
-        ` · ${[c.ultima_solucion.auto ? 'se resolvió sola (valor normal)' : '', c.ultima_solucion.solucion_por ? 'solución de ' + c.ultima_solucion.solucion_por : '', c.ultima_solucion.por ? 'confirmó ' + c.ultima_solucion.por : '', hace(c.ultima_solucion.en)].filter(Boolean).join(' · ')}`) : null,
     el('div', { class: 'lecturas' }, lecturas.map(tarjetaLectura)));
 }
 
@@ -198,7 +196,7 @@ async function listaAlertas(cuerpo, instalacionId, destacar = null) {
   const est = { filtro: 'abiertas', msg: '', destacar, yaMostrada: false };
   const tablaZona = el('div', {}), msg = el('div', {});
   const sel = el('select', { onchange: (e) => { est.filtro = e.target.value; cargar(); } },
-    [['abiertas', 'Abiertas'], ['activa', 'Activas'], ['reconocida', 'Reconocidas'], ['revisada', 'Revisadas (falta confirmar)'], ['resuelta', 'Resueltas']].map(([v, t]) => el('option', { value: v }, t)));
+    [['abiertas', 'Abiertas'], ['activa', 'Activas'], ['reconocida', 'Reconocidas'], ['revisada', 'Por confirmar (tickets)'], ['resuelta', 'Resueltas']].map(([v, t]) => el('option', { value: v }, t)));
   cuerpo.append(el('div', { class: 'filtros' }, el('label', { class: 'campo' }, el('span', {}, 'Estado'), sel)), msg, tablaZona);
   async function cargar(ok) {
       if (AQ.editando || ['TEXTAREA', 'SELECT', 'INPUT'].includes(document.activeElement.tagName)) return;                                  // no borrar lo que la persona está escribiendo

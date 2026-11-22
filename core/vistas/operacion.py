@@ -333,9 +333,10 @@ def causa_presente(a):
     return False, ""
 
 
-@ruta(("POST",), roles=("supervisor", "administrador"))
+@ruta(("POST",), roles=("encargado_cultivo", "supervisor", "administrador"))
 def verificar_alerta(request, pk):
-    """El supervisor o el administrador constata la revisión: la confirma (alerta resuelta) o la rechaza (vuelve a revisión).
+    """Ticket de confirmación: quien está a cargo del cultivo (el encargado) constata la solución informada —por el técnico o por otra persona—
+    y la confirma (alerta resuelta) o la rechaza (vuelve a revisión). El supervisor y el administrador pueden hacerlo como respaldo.
     Otra persona debe constatarla; la única excepción es el administrador, que puede confirmar o rechazar su propia revisión."""
     d = validar(request.cuerpo, {"aprobada": Campo(booleano), "nota": Campo(texto(0, 500), requerido=False)})
     nota = d.get("nota", "")

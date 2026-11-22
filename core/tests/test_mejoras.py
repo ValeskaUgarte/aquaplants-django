@@ -90,7 +90,8 @@ class AlertasYAvisosTests(MejorasBase):
         sup, csrf = self.entrar("supervisor")
         self.assertEqual(self.post(sup, csrf, f"/api/alertas/{aid}/reconocer").status_code, 204)     # el supervisor cubre al encargado
         enc, csrf_e = self.entrar("encargado_cultivo")
-        self.assertEqual(self.post(enc, csrf_e, f"/api/alertas/{aid}/verificar", {"aprobada": True}).status_code, 403)
+        # el encargado también puede confirmar (es quien recibe el ticket), pero solo una solución ya informada: esta sigue en revisión
+        self.assertEqual(self.post(enc, csrf_e, f"/api/alertas/{aid}/verificar", {"aprobada": True}).status_code, 400)
 
 
     def test_administrador_resuelve_su_propia_revision(self):

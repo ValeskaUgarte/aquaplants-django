@@ -65,9 +65,19 @@ def normalizar(clave, mapa, detalle=""):
     Queda en el historial con una línea de bitácora a nombre del sistema. Devuelve el id de la alerta resuelta, o None si no había."""
     with _lock:
         ab = _cargar()
-        aid = ab.pop(clave, None)
+        aid = ab.get(clave)
         if not aid:
             return None
+        previa = rtdb().get(f"alertas/{aid}") or {}
+        if previa.get("estado") == "revisada" and previa.get("revision_origen") == "tecnico":
+            # Ticket de confirmación del técnico: aunque el valor ya sea normal, la alerta espera a que el encargado confirme que quedó bien.
+            if not previa.get("normalizada_en"):
+                ahora = ahora_ms()
+                mapa[f"alertas/{aid}/normalizada_en"] = ahora
+                mapa[f"alertas/{aid}/espera_medicion_hasta"] = None
+                bitacora_sistema(mapa, aid, "valor normal", "La medición ya volvió a la normalidad: falta que el encargado confirme que quedó bien.")
+            return None
+        ab.pop(clave, None)
         ahora = ahora_ms()
         mapa[f"alertas_abiertas/{clave}"] = None
         mapa.update({f"alertas/{aid}/estado": "resuelta", f"alertas/{aid}/resuelta_en": ahora,

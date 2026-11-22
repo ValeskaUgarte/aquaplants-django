@@ -65,7 +65,7 @@ class SolicitudesTecnicasTests(TecnicoBase):
         hecho = self.enc.get("/api/mantenciones", {"estado": "completada"}).json()[0]
         self.assertEqual((hecho["resolucion"], hecho["repuestos"], hecho["completada_por"]), ("reemplazado", "Placa nueva", "Técnico Demo (servicio técnico)"))
         self.assertIn("Solicitud técnica actualizada", [n["titulo"] for n in self.avisos(self.enc)])
-        self.assertEqual(self.adm.get("/api/alertas").json()[0]["estado"], "activa")        # la alerta se cierra sola cuando el dato vuelve a la normalidad
+        self.assertEqual(self.adm.get("/api/alertas").json()[0]["estado"], "revisada")      # ticket: el encargado debe confirmar que quedó bien
 
     def test_bolsa_de_solicitudes_aceptar_y_devolver(self):
         otro_id, otro, csrf_o = self.nuevo_tecnico()
@@ -192,3 +192,35 @@ class UbicacionYEstadisticasTests(TecnicoBase):
         self.assertEqual(wb.sheetnames, ["Resumen", "Mantenciones", "Técnicos", "Dispositivos y ubicación"])
         tec = list(wb["Técnicos"].iter_rows(values_only=True))
         self.assertEqual((tec[1][0], tec[1][1], tec[1][3], tec[1][9]), ("Técnico Demo (servicio técnico)", 1, 1, 1))
+
+
+class TicketConfirmacionTests(TecnicoBase):
+    """El técnico deja la falla arreglada: se genera un ticket que confirma el encargado; supervisor y administrador solo reciben el aviso."""
+
+    def test_el_tecnico_arregla_y_el_encargado_confirma(self):
+        aid = self.alerta()
+        sup, csrf_s = self.entrar("supervisor")
+        r = self.post(self.enc, self.csrf_e, f"/api/alertas/{aid}/derivar", {"tipo": "componente", "accion": "arreglo", "nota": "La bomba no da presión"})
+        mid = r.json()["id"]
+        self.assertEqual(self.patch(self.tec, self.csrf_t, f"/api/mantenciones/{mid}", {"estado": "en_curso"}).status_code, 204)
+        self.assertEqual(self.patch(self.tec, self.csrf_t, f"/api/mantenciones/{mid}", {"estado": "completada", "nota": "Cambié la bomba",
+                                                                                         "resolucion": "arreglado", "diagnostico": "Bomba quemada"}).status_code, 204)
+        a = self.adm.get("/api/alertas").json()[0]
+        self.assertEqual(a["estado"], "revisada")                                      # ticket pendiente de confirmación
+        titulos_enc, titulos_sup = [n["titulo"] for n in self.avisos(self.enc)], [n["titulo"] for n in self.avisos(sup)]
+        self.assertIn("Confirma la solución", titulos_enc)                              # el encargado recibe el ticket
+        self.assertIn("Arreglo realizado", titulos_sup)                                 # el supervisor solo se entera
+        self.assertNotIn("Confirma la solución", titulos_sup)
+        self.enviar([self.med("CAU1", "caudal", 2.0, "L/min")])                         # el valor vuelve a la normalidad...
+        self.assertEqual(self.adm.get("/api/alertas").json()[0]["estado"], "revisada")  # ...pero no se cierra sola: espera al encargado
+        self.assertEqual(self.post(self.enc, self.csrf_e, f"/api/alertas/{aid}/verificar", {"aprobada": True, "nota": "Todo bien"}).status_code, 204)
+        self.assertEqual(self.adm.get("/api/alertas").json()[0]["estado"], "resuelta")
+
+    def test_el_encargado_puede_rechazar_y_la_alerta_vuelve_a_revision(self):
+        aid = self.alerta()
+        mid = self.post(self.enc, self.csrf_e, f"/api/alertas/{aid}/derivar", {"tipo": "componente", "accion": "arreglo", "nota": "Sin presión"}).json()["id"]
+        self.patch(self.tec, self.csrf_t, f"/api/mantenciones/{mid}", {"estado": "en_curso"})
+        self.patch(self.tec, self.csrf_t, f"/api/mantenciones/{mid}", {"estado": "completada", "nota": "Ajusté la válvula", "resolucion": "arreglado"})
+        self.assertEqual(self.post(self.enc, self.csrf_e, f"/api/alertas/{aid}/verificar", {"aprobada": False}).status_code, 400)   # exige el motivo
+        self.assertEqual(self.post(self.enc, self.csrf_e, f"/api/alertas/{aid}/verificar", {"aprobada": False, "nota": "Sigue sin presión"}).status_code, 204)
+        self.assertEqual(self.adm.get("/api/alertas").json()[0]["estado"], "reconocida")

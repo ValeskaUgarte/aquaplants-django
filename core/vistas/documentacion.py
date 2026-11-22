@@ -9,6 +9,7 @@ from django.http import JsonResponse
 
 from core.http import ruta
 from core.rtdb import rtdb
+from core.vistas.operacion import _panel
 
 ADMIN = ("administrador",)
 TODOS = "todos los roles"
@@ -76,7 +77,10 @@ def _proyecto(url):
 def documentacion(request):
     modo = rtdb().modo
     proyecto = _proyecto(settings.AQ.get("FIREBASE_URL")) if modo == "firebase" else None
+    t = _panel(request.usuario)["totales"]
     return JsonResponse({
+        "estado": {"dispositivos": t["dispositivos"], "en_linea": t["en_linea"], "sin_comunicacion": t["sin_comunicacion"],
+                   "mediciones_24h": t["mediciones_24h"], "alertas_abiertas": t["alertas_abiertas"]},
         "grupos": [{"grupo": g, "rutas": [{"metodo": m, "ruta": r, "para": p, "quien": q, "ejemplo": e} for m, r, p, q, e in rs]} for g, rs in CATALOGO],
         "firebase": {
             "modo": modo, "proyecto": proyecto,

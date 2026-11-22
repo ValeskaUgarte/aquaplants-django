@@ -118,9 +118,21 @@ def por_revision(aid, alerta, usuario, solucionado, nota, mapa):
     _agregar(mapa, uids, "alerta_revisada", titulo, f"{_contexto(alerta)} — {msg}".strip(" —"), aid, iid, critica=not solucionado)
 
 
+def por_ticket_confirmacion(aid, alerta, tecnico, nota, mapa, mantencion_id=""):
+    """El técnico dejó la falla arreglada: el encargado recibe el ticket para confirmarla; el supervisor y el administrador solo se enteran."""
+    from core import alertas as modulo_alertas
+    iid, ctx, did, problema = alerta.get("instalacion_id", ""), _contexto(alerta), alerta.get("dispositivo_id"), modulo_alertas.problema(alerta)
+    encargados = _destinatarios(iid, encargados=True, supervisores=False, administradores=False, excluir=tecnico["id"], dispositivo_id=did)
+    jefes = _destinatarios(iid, encargados=False, supervisores=True, administradores=True, excluir=tecnico["id"], dispositivo_id=did)
+    _agregar(mapa, encargados, "ticket_confirmacion", "Confirma la solución",
+             f"{ctx} — {_quien(tecnico)} dejó arreglado: {problema}. Revisa que todo esté bien y confírmalo. Informe: {nota}".strip(" —"), aid, iid, mantencion_id=mantencion_id)
+    _agregar(mapa, jefes, "alerta_arreglada", "Arreglo realizado",
+             f"{ctx} — {_quien(tecnico)} arregló: {problema}. Lo confirma el encargado (tú también puedes hacerlo si hace falta).".strip(" —"), aid, iid, mantencion_id=mantencion_id)
+
+
 def por_verificacion(aid, alerta, usuario, aprobada, nota, mapa):
     iid = alerta.get("instalacion_id", "")
-    uids = _destinatarios(iid, encargados=True, supervisores=False, administradores=True, excluir=usuario["id"], dispositivo_id=alerta.get("dispositivo_id"))
+    uids = _destinatarios(iid, encargados=True, supervisores=True, administradores=True, excluir=usuario["id"], dispositivo_id=alerta.get("dispositivo_id"))
     if aprobada:
         titulo, msg = "Alerta resuelta", f"{_quien(usuario)} confirmó la solución." + (f" Comentario: {nota}" if nota else "")
     else:

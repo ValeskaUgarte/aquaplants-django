@@ -105,32 +105,32 @@ async function vUbicacion(zona) {
 }
 
 /*  Solicitudes técnicas: la ve el técnico (lo suyo y la bolsa) y quienes las piden  */
-/*  API y conexiones (solo administrador): catálogo de rutas con pruebas de lectura y estado de Firebase  */
+/*  API y conexiones (solo administrador): cómo viajan los datos, con el estado en vivo y, aparte, la lista técnica  */
 async function vApi(zona) {
-  const d = await api.get('/documentacion'), fb = d.firebase;
-  const resultado = el('pre', { class: 'api-json' }, 'Elige «Probar» en una ruta GET para ver su respuesta aquí.');
-  const probar = async (ruta, extra, boton) => {
-    boton.disabled = true; resultado.textContent = `GET ${ruta}${extra}\n\nConsultando…`;
-    try {
-      const r = await api.get(ruta.replace(/^\/api/, '') + extra), txt = JSON.stringify(r, null, 2);
-      resultado.textContent = `GET ${ruta}${extra}\n\n${txt.length > 6000 ? `${txt.slice(0, 6000)}\n… (recortado: ${fmt(txt.length, 0)} caracteres)` : txt}`;
-    } catch (e) { resultado.textContent = `GET ${ruta}${extra}\n\nError: ${mensajeError(e)}`; }
-    boton.disabled = false; resultado.scrollIntoView({ block: 'nearest' });
-  };
-  const fila = (r) => {
-    const consulta = r.metodo === 'GET' && r.ejemplo !== null && !r.ruta.includes('{') ? el('input', { type: 'text', class: 'api-q', value: r.ejemplo, 'aria-label': `Parámetros de ${r.ruta}`, placeholder: '?parametro=valor' }) : null;
-    const b = consulta ? el('button', { type: 'button', class: 'boton-secundario api-probar', onclick: (e) => probar(r.ruta, consulta.value.trim(), e.currentTarget) }, 'Probar') : null;
-    return el('div', { class: 'api-fila' }, el('span', { class: `api-met m-${r.metodo}` }, r.metodo), el('div', { class: 'api-ruta' }, el('code', {}, r.ruta), el('span', { class: 'suave' }, r.para), el('small', { class: 'suave' }, `Quién: ${r.quien}`)), consulta, b);
-  };
-  const enNube = fb.modo === 'firebase';
-  const tarjetaFb = el('section', { class: 'api-fb' }, ICO('firebase', 'ico-api'), el('div', {},
-    el('h3', {}, 'Conexión con Firebase Realtime Database'),
-    el('p', {}, enNube ? `Conectado a la nube${fb.proyecto ? ` · proyecto «${fb.proyecto}»` : ''}.` : 'Modo local: el sistema usa una base compatible dentro de este servidor (sin internet). Para usar la nube, escribe AQ_FIREBASE_URL en el archivo .env del servidor.'),
-    el('p', { class: 'suave' }, 'Es seguro vincularla si las reglas de la base bloquean el acceso directo (firebase/database.rules.json) y el archivo de credenciales queda solo en el servidor. Por eso la dirección y las claves no se ingresan ni se guardan desde esta página.'),
-    fb.consola ? el('a', { class: 'boton-secundario', href: fb.consola, target: '_blank', rel: 'noopener' }, ICO('firebase', 'ico-btn'), 'Abrir la consola de Firebase') : null));
-  vaciar(zona).append(encabezado('API y conexiones'),
-    el('p', { class: 'ayuda' }, `Todas las rutas devuelven JSON y usan tu sesión actual. ${d.nota}`), tarjetaFb,
-    el('div', { class: 'api-capas' }, el('div', {}, ...d.grupos.map((g) => el('section', { class: 'bloque' }, el('h3', {}, g.grupo), ...g.rutas.map(fila)))), el('div', { class: 'api-resultado' }, el('h3', {}, 'Respuesta'), resultado)));
+  const d = await api.get('/documentacion'), fb = d.fb || d.firebase, e = d.estado, enNube = fb.modo === 'firebase';
+  const paso = (icono, titulo, texto, estado, ok = true) => el('div', { class: 'flujo-paso' }, ICO(icono, 'ico-flujo'), el('strong', {}, titulo), el('p', {}, texto),
+    el('span', { class: `flujo-estado ${ok ? 'ok' : 'aviso'}` }, estado));
+  const flecha = () => el('div', { class: 'flujo-flecha', 'aria-hidden': 'true' }, '→');
+  const pasos = [
+    paso('sensores', 'Sensores', 'Miden agua, nutrientes, pH, luz y temperatura en cada cultivo.', `${e.dispositivos} equipo${e.dispositivos === 1 ? '' : 's'} instalado${e.dispositivos === 1 ? '' : 's'}`),
+    paso('dispositivos', 'Equipo AquaBrain', 'Reúne las mediciones y las envía por internet, firmadas para que nadie las falsifique.', `${e.en_linea} de ${e.dispositivos} en línea`, e.sin_comunicacion === 0),
+    paso('api', 'API', 'Es la puerta de entrada: recibe los datos y responde cuando la web o la app piden información.', 'Funcionando'),
+    paso('consola-django', 'Servidor Django', 'Revisa cada dato, detecta fallas, crea las alertas y avisa a las personas indicadas.', `${e.alertas_abiertas} alerta${e.alertas_abiertas === 1 ? '' : 's'} abierta${e.alertas_abiertas === 1 ? '' : 's'}`, e.alertas_abiertas === 0),
+    paso('firebase', 'Base de datos Firebase', 'Guarda el historial de mediciones, alertas y auditoría.', enNube ? `Nube${fb.proyecto ? ` · ${fb.proyecto}` : ''}` : 'Modo local (sin internet)', true),
+    paso('tab-hoy', 'Web y app móvil', 'Muestran el estado en vivo, las alertas y las visitas técnicas a cada persona según su rol.', `${fmt(e.mediciones_24h, 0)} mediciones en 24 h`)];
+  const lista = el('div', { class: 'flujo' });
+  pasos.forEach((p, i) => { if (i) lista.append(flecha()); lista.append(p); });
+  const tecnica = el('details', { class: 'api-tecnica' }, el('summary', {}, 'Para desarrolladores: lista técnica de rutas'),
+    el('p', { class: 'suave' }, 'Solo informativa. Cada ruta devuelve datos en formato JSON y requiere iniciar sesión (salvo las públicas).'),
+    ...d.grupos.map((g) => el('section', {}, el('h4', {}, g.grupo), el('table', { class: 'api-tabla' }, el('tbody', {}, g.rutas.map((r) =>
+      el('tr', {}, el('td', {}, el('span', { class: `api-met m-${r.metodo}` }, r.metodo)), el('td', {}, el('code', {}, r.ruta)), el('td', {}, r.para))))))));
+  vaciar(zona).append(encabezado('Cómo se conecta el sistema'),
+    el('p', { class: 'ayuda' }, 'Los datos viajan de izquierda a derecha, de los sensores hasta la pantalla de cada persona. La API es la puerta por donde entran y salen.'), lista,
+    el('section', { class: 'api-fb' }, ICO('firebase', 'ico-api'), el('div', {}, el('h3', {}, 'Base de datos Firebase'),
+      el('p', {}, enNube ? `Conectada a la nube${fb.proyecto ? ` (proyecto «${fb.proyecto}»)` : ''}.` : 'Hoy el sistema guarda todo dentro de este servidor, sin internet. Para usar la nube de Firebase se configura una sola vez en el archivo .env del servidor.'),
+      el('p', { class: 'suave' }, 'Es seguro conectarla mientras las reglas de la base bloqueen el acceso directo y la clave se quede solo en el servidor.'),
+      fb.consola ? el('a', { class: 'boton-secundario', href: fb.consola, target: '_blank', rel: 'noopener' }, ICO('firebase', 'ico-btn'), 'Abrir la consola de Firebase') : null)),
+    tecnica);
 }
 
 /*  Órdenes de trabajo del técnico: lo nuevo (asignado o en la bolsa), lo que está haciendo y lo ya cerrado  */

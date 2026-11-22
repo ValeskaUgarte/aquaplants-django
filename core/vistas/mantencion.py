@@ -9,7 +9,7 @@ import secrets
 
 from django.http import JsonResponse
 
-from core import cache_micro, notificaciones, repo, seguridad
+from core import alertas as modulo_alertas, cache_micro, notificaciones, repo, seguridad
 from core.http import (Campo, conflicto, exigir_acceso_instalacion, instalaciones_visibles, invalido, ip_cliente, no_encontrado, opcion,
                        prohibido, ruta, sin_contenido, texto, validar, entero)
 from core.rtdb import rtdb
@@ -249,7 +249,19 @@ def mantencion_detalle(request, pk):
         mapa[f"alertas/{m['alerta_id']}/bitacora/{clave_ms(ahora)}_{secrets.token_hex(2)}"] = {
             "por": quien["id"], "rol": quien["rol"], "accion": accion,
             "nota": (f"Diagnóstico: {d['diagnostico']}. " if d.get("diagnostico") and estado == "completada" else "") + nota, "en": ahora}
-    if accion:                                                    # quien pidió la mantención y los jefes se enteran
+    ticket = None
+    if es_tec and estado == "completada" and m.get("alerta_id") and d.get("resolucion") in ("arreglado", "reemplazado"):
+        a = rtdb().get(f"alertas/{m['alerta_id']}") or {}
+        if a.get("estado") in ("activa", "reconocida"):          # ticket: la alerta queda «por confirmar» por el encargado
+            from core.vistas.operacion import causa_presente
+            presente, _ = causa_presente(a)
+            for k, v in {"estado": "revisada", "revision_por": quien["id"], "revision_en": ahora, "revision_nota": nota, "revision_solucionado": True,
+                         "revision_origen": "tecnico", **({"espera_medicion_hasta": ahora + modulo_alertas.GRACIA_MEDICION_MS} if presente else {})}.items():
+                mapa[f"alertas/{m['alerta_id']}/{k}"] = v
+            modulo_alertas.bitacora_sistema(mapa, m["alerta_id"], "ticket de confirmación", "El técnico dejó la falla arreglada: el encargado debe confirmar que quedó bien.")
+            notificaciones.por_ticket_confirmacion(m["alerta_id"], a, quien, nota, mapa, mantencion_id=pk)
+            ticket = a
+    if accion and not ticket:                                     # quien pidió la mantención y los jefes se enteran
         interesados = [m.get("creada_por")] + [u["id"] for u in repo.lista("usuarios") if u.get("rol") in ("supervisor", "administrador") and u.get("activo", True)]
         notificaciones.avisar(mapa, [x for x in interesados if x and x != quien["id"]], "mantencion_actualizada", "Solicitud técnica actualizada",
                               f"{quien['nombre']} {accion}. {nota}".strip(), m.get("alerta_id") or "", m["instalacion_id"], mantencion_id=pk)
@@ -258,6 +270,9 @@ def mantencion_detalle(request, pk):
     except Exception:
         notificaciones.descartar_push()
         raise
+    if ticket:
+        from core.vistas.operacion import _reparar_simulacion
+        _reparar_simulacion(ticket)                              # en la simulación, el equipo vuelve a la normalidad
     repo.invalidar("mantenciones")
     notificaciones.despachar_push()
     cache_micro.limpiar()

@@ -140,6 +140,8 @@ const fmtLectura = (v) => fmt(v, 3);
 /*  Flujo de una alerta: activa -> reconocida -> revisada -> resuelta 
    Si el valor vuelve a la normalidad antes de que alguien la atienda, el sistema la resuelve sola (queda en el historial). */
 const ETIQUETA_ALERTA = { activa: 'Alerta activa', reconocida: 'En revisión', revisada: 'Falta confirmar', ok: 'Sin alertas' };
+/* En el inicio solo cuenta lo que se está atendiendo ahora: lo ya solucionado y lo que espera confirmación quedan en Alertas, en el seguimiento y en los informes. */
+const fallasVivas = (c) => (c.fallas || []).filter((x) => x.estado === 'activa' || x.estado === 'reconocida');
 const ETIQUETA_FALLA = { activa: 'sin atender', reconocida: 'en revisión', revisada: 'solucionada · falta confirmar' };
 
 /* Cada acción de la bitácora se muestra como un paso con su color, su título, quién y cuándo. */
@@ -180,7 +182,7 @@ function pasosDeAlerta(a) {
         : a.solucion_cuestionada && a.estado === 'reconocida' ? 'La medición no respaldó la solución informada: hay que volver a revisar o derivar a un técnico.'
         : a.estado === 'revisada' && a.espera_medicion_hasta ? `Se informó la solución. La medición tiene hasta las ${horaCorta(a.espera_medicion_hasta)} para confirmarlo; si se normaliza, la alerta se resuelve sola.`
         : a.estado === 'activa' ? 'Nadie ha ido a revisar todavía. Si el valor vuelve a la normalidad antes, se resolverá sola.'
-        : a.estado === 'revisada' ? 'Falta que el supervisor o el administrador confirme la solución.'
+        : a.estado === 'revisada' ? 'Falta que el encargado confirme que quedó bien (si él mismo lo informó, lo confirma otra persona).'
           : rechazada ? 'Se rechazó la solución: hay que volver a revisar.' : `${a.reconocida_por || 'Alguien'} está revisando.` });
   } else if (a.resuelta_en) {
     const min = Math.max(0, Math.round((Date.parse(a.resuelta_en) - Date.parse(a.creada_en)) / 60000));
@@ -208,7 +210,8 @@ function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
   };
   const nota = (ph) => el('textarea', { rows: 2, maxlength: 500, placeholder: ph, oninput: (e) => { AQ.editando = e.target.value.length > 0; } });
   const boton = (t, f) => el('button', { type: 'button', class: clase, onclick: f }, t);
-  caja.append(...avisosAlerta(a, alTerminar, clase));
+  const avisos = avisosAlerta(a, alTerminar, clase);
+  if (a.estado !== 'revisada') caja.append(...avisos);            // en un ticket por confirmar, primero la acción y después el informe de la visita
   if (a.estado === 'activa') {
     caja.append(esEncargado ? boton('Reconocer (voy a revisar)', () => enviar('reconocer', {}, 'Alerta reconocida')) : el('span', { class: 'meta suave' }, 'Nadie ha ido a revisar todavía.'));
   } else if (a.estado === 'reconocida') {
@@ -224,15 +227,19 @@ function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
         el('button', { type: 'button', class: `${clase} boton-mal`, onclick: () => revisar(false) }, '✖ No pude solucionarlo')));
       if (rol !== 'encargado_cultivo') caja.append(el('div', { class: 'meta suave' }, `Como ${ROL[rol].toLowerCase()} tu revisión es la definitiva: si queda solucionado, la alerta se resuelve de inmediato y queda en la bitácora a tu nombre; si no, sigue abierta.`));
     } else caja.append(el('span', { class: 'meta suave' }, 'En revisión por el encargado.'));
-  } else if (a.estado === 'revisada') {
-    if (esSupervisor) {
-      const t = nota('Comentario (obligatorio si la rechazas)');
-      caja.append(el('div', { class: 'meta' }, `${a.revision_por || 'Alguien'} informó que quedó solucionado${a.revision_nota ? ': «' + a.revision_nota + '»' : ''}.`), t,
+  } else if (a.estado === 'revisada') {                          // ticket de confirmación: lo confirma el encargado; supervisor y administrador, de respaldo
+    const propia = a.revision_por && a.revision_por === AQ.usuario.nombre && rol !== 'administrador';
+    caja.append(el('div', { class: 'ticket' }, el('strong', {}, 'Ticket de confirmación'),
+      el('div', {}, `${a.revision_por || 'Alguien'} informó que quedó solucionado${a.revision_nota ? ': «' + a.revision_nota + '»' : ''}.`)));
+    if (esEncargado && !propia) {
+      const t = nota('Comentario (obligatorio si no quedó bien)');
+      caja.append(el('div', { class: 'meta suave' }, rol === 'encargado_cultivo' ? 'Revisa que el equipo esté bien y confirma.' : 'Lo confirma el encargado del cultivo; tú puedes hacerlo si hace falta.'), t,
         el('div', { class: 'botones-revision' },
-          el('button', { type: 'button', class: `${clase} boton-ok`, onclick: () => enviar('verificar', { aprobada: true, nota: t.value }, 'Solución confirmada: alerta resuelta') }, '✔ Confirmar solución'),
-          el('button', { type: 'button', class: `${clase} boton-mal`, onclick: () => enviar('verificar', { aprobada: false, nota: t.value }, 'Solución rechazada: vuelve a revisión') }, '✖ Rechazar')));
-    } else caja.append(el('span', { class: 'meta suave' }, 'Esperando la confirmación del supervisor.'));
+          el('button', { type: 'button', class: `${clase} boton-ok`, onclick: () => enviar('verificar', { aprobada: true, nota: t.value }, 'Solución confirmada: alerta resuelta') }, '✔ Quedó bien: confirmar'),
+          el('button', { type: 'button', class: `${clase} boton-mal`, onclick: () => enviar('verificar', { aprobada: false, nota: t.value }, 'Solución rechazada: vuelve a revisión') }, '✖ No quedó bien')));
+    } else caja.append(el('span', { class: 'meta suave' }, esEncargado ? 'Quien hizo la revisión no puede confirmarla: debe hacerlo otra persona.' : 'Esperando la confirmación del encargado.'));
   }
+  if (a.estado === 'revisada') caja.append(...avisos);
   const mantAbierta = a.mantencion && ['pendiente', 'en_curso'].includes(a.mantencion.estado);
   if (esEncargado && !mantAbierta) caja.append(formularioDerivar(a, alTerminar, clase, a.requiere_tecnico));   // en cualquier alerta abierta, también recién creada
   return caja.append(msg), caja;
