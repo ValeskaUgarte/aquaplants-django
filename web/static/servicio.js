@@ -115,22 +115,65 @@ async function vApi(zona) {
     paso('sensores', 'Sensores', 'Miden agua, nutrientes, pH, luz y temperatura en cada cultivo.', `${e.dispositivos} equipo${e.dispositivos === 1 ? '' : 's'} instalado${e.dispositivos === 1 ? '' : 's'}`),
     paso('dispositivos', 'Equipo AquaBrain', 'Reúne las mediciones y las envía por internet, firmadas para que nadie las falsifique.', `${e.en_linea} de ${e.dispositivos} en línea`, e.sin_comunicacion === 0),
     paso('api', 'API', 'Es la puerta de entrada: recibe los datos y responde cuando la web o la app piden información.', 'Funcionando'),
-    paso('consola-django', 'Servidor Django', 'Revisa cada dato, detecta fallas, crea las alertas y avisa a las personas indicadas.', `${e.alertas_abiertas} alerta${e.alertas_abiertas === 1 ? '' : 's'} abierta${e.alertas_abiertas === 1 ? '' : 's'}`, e.alertas_abiertas === 0),
+    paso('consola-django', 'Servidor Django', 'Revisa cada dato, detecta fallas, crea las alertas y avisa a las personas indicadas.', `${e.alertas_abiertas} alerta${e.alertas_abiertas === 1 ? '' : 's'} abierta${e.alertas_abiertas === 1 ? '' : 's'}`),
     paso('firebase', 'Base de datos Firebase', 'Guarda el historial de mediciones, alertas y auditoría.', enNube ? `Nube${fb.proyecto ? ` · ${fb.proyecto}` : ''}` : 'Modo local (sin internet)', true),
     paso('tab-hoy', 'Web y app móvil', 'Muestran el estado en vivo, las alertas y las visitas técnicas a cada persona según su rol.', `${fmt(e.mediciones_24h, 0)} mediciones en 24 h`)];
   const lista = el('div', { class: 'flujo' });
   pasos.forEach((p, i) => { if (i) lista.append(flecha()); lista.append(p); });
-  const tecnica = el('details', { class: 'api-tecnica' }, el('summary', {}, 'Para desarrolladores: lista técnica de rutas'),
-    el('p', { class: 'suave' }, 'Solo informativa. Cada ruta devuelve datos en formato JSON y requiere iniciar sesión (salvo las públicas).'),
-    ...d.grupos.map((g) => el('section', {}, el('h4', {}, g.grupo), el('table', { class: 'api-tabla' }, el('tbody', {}, g.rutas.map((r) =>
-      el('tr', {}, el('td', {}, el('span', { class: `api-met m-${r.metodo}` }, r.metodo)), el('td', {}, el('code', {}, r.ruta)), el('td', {}, r.para))))))));
+
+  // Panel en vivo: datos reales que la API entrega en /api/panel, actualizados cada 5 segundos
+  const kpis = el('div', { class: 'kpis' });
+  const cultivos = el('div', { class: 'vivo-cultivos' });
+  const pintar = (p) => {
+    const t = p.totales;
+    vaciar(kpis).append(kpi('Instalaciones', t.instalaciones, null, null), kpi('Dispositivos en línea', `${t.en_linea} de ${t.dispositivos}`, null, null),
+      kpi('Sin comunicación', t.sin_comunicacion, null, null), kpi('Alertas abiertas', t.alertas_abiertas, null, null));
+    vaciar(cultivos).append(...p.instalaciones.flatMap((i) => i.cultivos.map((c) => el('article', { class: 'vivo-cultivo' },
+      el('h4', {}, c.nombre), el('p', { class: 'suave' }, `${i.nombre} · ${c.dispositivo_codigo}`),
+      el('p', {}, `Conexión: ${c.estado_conexion === 'en_linea' ? 'en línea' : c.estado_conexion === 'sin_comunicacion' ? 'sin comunicación' : 'sin datos'}`),
+      el('p', {}, `Alertas abiertas: ${c.alertas_abiertas}`)))));
+  };
+  // Selector: eliges una ruta de lectura y ves su petición y su respuesta real
+  const rutasLectura = (d.grupos || []).flatMap((g) => g.rutas
+    .filter((r) => r.metodo === 'GET' && (r.ejemplo === '' || r.ejemplo === '?instalacion_id=')));
+  const seleccion = el('select', { class: 'api-selector', onchange: () => mostrar() },
+    rutasLectura.map((r) => el('option', { value: r.ruta, 'data-inst': r.ejemplo === '?instalacion_id=' ? '1' : '' }, r.ruta)));
+  const linea = el('div', { class: 'api-linea' }, 'Elige una ruta para ver su respuesta.');
+  const crudo = el('pre', { class: 'api-json' }, '');
+  const mostrar = async () => {
+    const opt = seleccion.selectedOptions[0];
+    if (!opt) return;
+    const ruta = opt.value;
+    let consulta = ruta.replace(/^\/api/, '');
+    const t0 = performance.now();
+    try {
+      if (opt.dataset.inst) {
+        const lista = await api.get('/instalaciones');
+        if (!lista.length) throw new Error('No hay instalaciones registradas.');
+        consulta += `?instalacion_id=${lista[0].id}`;
+      }
+      const datos = await api.get(consulta);
+      const ms = Math.round(performance.now() - t0);
+      linea.textContent = `GET ${ruta} · 200 OK · ${ms} ms · ${new Date().toLocaleTimeString('es-CL')}`;
+      crudo.textContent = JSON.stringify(datos, null, 2).slice(0, 6000);
+    } catch (err) {
+      linea.textContent = `GET ${ruta} · error`;
+      crudo.textContent = mensajeError(err);
+    }
+  };
+  seleccion.value = '/api/panel';
+  const cargar = async () => { pintar(await api.get('/panel')); await mostrar(); };
+  await cargar();
+
   vaciar(zona).append(encabezado('Cómo se conecta el sistema'),
     el('p', { class: 'ayuda' }, 'Los datos viajan de izquierda a derecha, de los sensores hasta la pantalla de cada persona. La API es la puerta por donde entran y salen.'), lista,
-    el('section', { class: 'api-fb' }, ICO('firebase', 'ico-api'), el('div', {}, el('h3', {}, 'Base de datos Firebase'),
-      el('p', {}, enNube ? `Conectada a la nube${fb.proyecto ? ` (proyecto «${fb.proyecto}»)` : ''}.` : 'Hoy el sistema guarda todo dentro de este servidor, sin internet. Para usar la nube de Firebase se configura una sola vez en el archivo .env del servidor.'),
-      el('p', { class: 'suave' }, 'Es seguro conectarla mientras las reglas de la base bloqueen el acceso directo y la clave se quede solo en el servidor.'),
-      fb.consola ? el('a', { class: 'boton-secundario', href: fb.consola, target: '_blank', rel: 'noopener' }, ICO('firebase', 'ico-btn'), 'Abrir la consola de Firebase') : null)),
-    tecnica);
+    el('section', { class: 'bloque' }, el('h3', {}, 'Datos en vivo desde la API'),
+      el('p', { class: 'suave' }, 'Elige una ruta de la API. El panel se actualiza solo cada 5 segundos.'), el('div', { class: 'api-barra' }, el('label', {}, 'Ruta de la API: '), seleccion), linea, crudo, kpis, cultivos),
+        el('section', { class: 'api-fb' }, ICO('firebase', 'ico-api'), el('div', {}, el('h3', {}, 'Base de datos Firebase'),
+          el('p', {}, enNube ? `Conectada a la nube${fb.proyecto ? ` (proyecto «${fb.proyecto}»)` : ''}.` : 'Hoy el sistema guarda todo dentro de este servidor, sin internet. Para usar la nube de Firebase se configura una sola vez en el archivo .env del servidor.'),
+          el('p', { class: 'suave' }, 'Es seguro conectarla mientras las reglas de la base bloqueen el acceso directo y la clave se quede solo en el servidor.'),
+          fb.consola ? el('a', { class: 'boton-secundario', href: fb.consola, target: '_blank', rel: 'noopener' }, ICO('firebase', 'ico-btn'), 'Abrir la consola de Firebase') : null)),);
+  return { refrescar: cargar, cada: 5000 };
 }
 
 /*  Órdenes de trabajo del técnico: lo nuevo (asignado o en la bolsa), lo que está haciendo y lo ya cerrado  */

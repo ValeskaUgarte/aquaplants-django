@@ -196,3 +196,17 @@
 /* Proceso de una alerta: plegado, a un toque */
 details.proceso { margin-top:.6rem; border-top:1px dashed #cfd9d3; padding-top:.3rem; }
 details.proceso > summary { cursor:pointer; font-weight:700; color:#0b6e4f; padding:.45rem 0; }
+
+/* Panel en vivo de la sección API */
+.vivo-cultivos { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:.8rem; margin-top:.6rem; }
+.vivo-cultivo { background:#fff; border:1px solid #d7e2dc; border-radius:12px; padding:.9rem 1rem; }
+.vivo-cultivo h4 { margin:0 0 .3rem; }
+.vivo-cultivo p { margin:.2rem 0; }
+
+/* La petición y la respuesta de la API, visibles en la pantalla */
+.api-linea { font-family:Consolas,monospace; font-size:.85rem; background:#e8f1ec; border-left:4px solid #1b7f5b; padding:.5rem .7rem; border-radius:6px; margin:.4rem 0; }
+.api-json { background:#10201a; color:#d6f5e4; border-radius:12px; padding:.9rem; max-height:320px; overflow:auto; font-size:.78rem; white-space:pre-wrap; overflow-wrap:anywhere; margin:.4rem 0 1rem; }
+
+/* Selector de rutas de la API */
+.api-barra { display:flex; align-items:center; gap:.6rem; margin:.4rem 0; }
+.api-selector { font-family:Consolas,monospace; font-size:.9rem; padding:.45rem .6rem; border:1px solid #b9cfc3; border-radius:8px; min-width:320px; }
