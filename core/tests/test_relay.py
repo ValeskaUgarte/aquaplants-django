@@ -119,11 +119,11 @@ class EscenariosTests(Base):
         from core.simulacion import _modulo_simulador
         mod = _modulo_simulador()
         esperado = {"falta_agua": "Nivel de agua bajo", "exceso_agua": "Exceso de agua (desborde)", "falla_bomba": "Caudal bajo",
-                    "falta_nutrientes": "Nutrientes bajos", "falta_luz": "Falta de luz solar", "exceso_luz": "Exceso de luz solar",
-                    "gas_co2": "Gas contaminante CO₂ alto", "gas_amoniaco": "Gas contaminante amoníaco alto",
+                    "falta_nutrientes": "Conductividad eléctrica (EC) baja", "falta_luz": "Falta de luz (PPFD baja)", "exceso_luz": "Exceso de luz (PPFD alta)",
+                    "gas_amoniaco": "Gas contaminante amoníaco alto",
                     "falta_nitrogeno": "Falta de nitrógeno (N)", "humedad_alta": "Humedad ambiental alta",
                     "humedad_baja": "Humedad ambiental baja", "helada": "Riesgo de helada (temperatura ambiente baja)", "ph_acido": "pH demasiado ácido", "ph_alcalino": "pH demasiado alcalino",
-                    "calor": "Temperatura de la solución alta", "exceso_nutrientes": "Nutrientes altos"}
+                    "calor": "Temperatura de la solución alta", "exceso_nutrientes": "Conductividad eléctrica (EC) alta"}
         conf = self.por_cultivo["Lechuga"]
         for escenario, problema in esperado.items():
             with self.subTest(escenario=escenario):
@@ -184,11 +184,11 @@ class EscenariosTests(Base):
             self.assertEqual(d.cola[-1], {"x": 29999})                                # se conservan las más recientes
 
     def test_panel_muestra_la_falla_y_quien_la_atiende(self):
-        self.enviar([self.med("CO21", "co2", 2500, "ppm")])
+        self.enviar([self.med("NH31", "amoniaco", 30, "ppm")])
         sup, csrf = self.entrar("supervisor")
         aid = sup.get("/api/alertas").json()[0]["id"]
         self.post(sup, csrf, f"/api/alertas/{aid}/reconocer")
         c = next(x for i in sup.get("/api/panel").json()["instalaciones"] for x in i["cultivos"] if x["dispositivo_codigo"] == "AQB-01")
-        self.assertEqual(c["fallas"][0]["problema"], "Gas contaminante CO₂ alto")
+        self.assertEqual(c["fallas"][0]["problema"], "Gas contaminante amoníaco alto")
         self.assertEqual(c["fallas"][0]["estado"], "reconocida")
         self.assertEqual(c["fallas"][0]["por"], "Supervisor Demo")

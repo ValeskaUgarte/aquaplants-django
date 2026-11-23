@@ -42,6 +42,13 @@ class Command(RunserverCommand):
                     self.stdout.write(f"[sensores] Se agregaron {n} registros nuevos (agua, luz, N-P-K, pH, gases y sus alertas).")
             except Exception as e:                            # nunca impide que el servidor arranque
                 self.stdout.write(f"[sensores] No se pudieron agregar los sensores nuevos: {e}")
+            try:
+                from core.management.commands.seed_demo import aplicar_referencias
+                n = aplicar_referencias()                     # una sola vez: variables por cultivo y umbrales de las tablas de referencia
+                if n:
+                    self.stdout.write(f"[cultivos] Variables y umbrales de referencia aplicados ({n} cambios).")
+            except Exception as e:
+                self.stdout.write(f"[cultivos] No se pudieron aplicar las referencias por cultivo: {e}")
             simulacion.iniciar(f"http://127.0.0.1:{self.port}", intervalo=float(os.environ.get("AQ_SIM_INTERVALO", "5")))
             iniciar_monitor()
         from core import acceso

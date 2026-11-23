@@ -2,7 +2,7 @@
 Mismos permisos que el proyecto original: lectura según alcance del usuario; escritura solo del administrador."""
 from django.http import JsonResponse
 
-from core import repo, seguridad
+from core import repo, seguridad, variables
 from core.http import (Campo, ErrorApi, booleano, conflicto, correo, entero, id_valor, instalaciones_visibles, invalido,
                        ip_cliente, lista_ids, no_encontrado, numero, opcion, prohibido, ruta, sin_contenido, texto, validar)
 from core.rtdb import rtdb
@@ -203,7 +203,8 @@ def cultivos(request):
     if request.method == "GET":
         vis, iid = instalaciones_visibles(request.usuario), request.GET.get("instalacion_id")
         return JsonResponse([{"id": c["id"], "instalacion_id": c["instalacion_id"], "nombre": c["nombre"],
-                              "descripcion": c.get("descripcion"), "activo": c.get("activo", True)}
+                              "descripcion": c.get("descripcion"), "activo": c.get("activo", True),
+                              "variables": sorted(v) if (v := variables.del_cultivo(c["id"])) is not None else None}
                              for c in sorted(repo.lista("cultivos"), key=lambda x: x["nombre"].lower())
                              if _visible(c["instalacion_id"], vis) and (not iid or c["instalacion_id"] == iid)], safe=False)
     _solo_admin(request)
@@ -213,9 +214,20 @@ def cultivos(request):
     if any(c["instalacion_id"] == d["instalacion_id"] and c["nombre"] == d["nombre"] for c in repo.lista("cultivos")):
         raise conflicto("Ya existe un cultivo con ese nombre en la instalación.")
     cid = repo.nuevo_id()
-    repo.guardar("cultivos", cid, {**d, "activo": d.get("activo", True)})
+    repo.guardar("cultivos", cid, {**d, "activo": d.get("activo", True), "variables": variables.por_defecto() or None})
     _audit(request, "cultivo_creado", "cultivo", cid)
     return JsonResponse({"id": cid}, status=201)
+
+
+def _lista_variables(x):
+    """Variables que muestra un cultivo: lista de códigos de tipo de sensor existentes (al menos una)."""
+    if not isinstance(x, list) or not x or len(x) > 60:
+        raise ValueError("Debe ser una lista con al menos una variable.")
+    conocidas = {t.get("tipo_variable") for t in repo.col("tipos_sensor").values() if isinstance(t, dict)}
+    malas = [v for v in x if not isinstance(v, str) or v not in conocidas]
+    if malas:
+        raise ValueError(f"Variables desconocidas: {', '.join(map(str, malas))[:200]}.")
+    return sorted(set(x))
 
 
 @ruta(("PATCH", "DELETE"), roles=ADMIN)
@@ -232,7 +244,10 @@ def cultivo_detalle(request, pk):
         repo.invalidar()
         _audit(request, "cultivo_eliminado", "cultivo", pk)
         return sin_contenido()
-    d = validar(request.cuerpo, {"nombre": Campo(texto(2, 120)), "descripcion": Campo(texto(0, 500)), "activo": Campo(booleano)}, parcial=True)
+    d = validar(request.cuerpo, {"nombre": Campo(texto(2, 120)), "descripcion": Campo(texto(0, 500)), "activo": Campo(booleano),
+                                 "variables": Campo(_lista_variables)}, parcial=True)
+    if "variables" in d:                       # se guarda como {tipo_variable: true}; reemplaza la lista anterior completa
+        d["variables"] = {v: True for v in d["variables"]}
     repo.actualizar("cultivos", pk, d)
     _audit(request, "cultivo_modificado", "cultivo", pk, d)
     return sin_contenido()
@@ -278,7 +293,8 @@ def planta_detalle(request, pk):
 # ============================================================ TIPOS DE SENSOR
 def _tipo_publico(t):
     return {"id": t["id"], "codigo": t["codigo"], "nombre": t["nombre"], "tipo_variable": t["tipo_variable"], "unidad": t["unidad"],
-            "valor_min": t.get("valor_min"), "valor_max": t.get("valor_max")}
+            "valor_min": t.get("valor_min"), "valor_max": t.get("valor_max"), "simulado": bool(t.get("simulado")),
+            "en_uso": variables.en_uso(t["tipo_variable"])}
 
 
 @ruta(("GET", "POST"))
@@ -375,18 +391,23 @@ def _ubic(u):
 def sensores(request):
     if request.method == "GET":
         vis, iid = instalaciones_visibles(request.usuario), request.GET.get("instalacion_id")
+        todos = request.GET.get("todos") == "1" and request.usuario["rol"] == "administrador"   # la consola de administración ve también los ocultos
         disp, tipos = repo.col("dispositivos"), repo.col("tipos_sensor")
         salida = []
         for s in repo.lista("sensores"):
             dv, t = disp.get(s["dispositivo_id"]), tipos.get(s["tipo_sensor_id"])
             if not dv or not t or not _visible(dv["instalacion_id"], vis) or (iid and dv["instalacion_id"] != iid):
                 continue
+            visible = variables.visible(dv, t["tipo_variable"])
+            if not visible and not todos:
+                continue
             salida.append({"id": s["id"], "dispositivo_id": s["dispositivo_id"], "dispositivo_codigo": dv["codigo"],
                            "instalacion_id": dv["instalacion_id"], "codigo": s["codigo"], "nombre": s["nombre"],
                            "activo": s.get("activo", True), "cultivo_id": dv.get("cultivo_id"),
                            "cultivo_nombre": repo.col("cultivos").get(dv.get("cultivo_id"), {}).get("nombre"),
                            "tipo_sensor_id": s["tipo_sensor_id"],
-                           "tipo_nombre": t["nombre"], "tipo_variable": t["tipo_variable"], "unidad": t["unidad"]})
+                           "tipo_nombre": variables.nombre_visible(t), "tipo_variable": t["tipo_variable"], "unidad": t["unidad"],
+                           "visible_en_cultivo": visible})
         return JsonResponse(sorted(salida, key=lambda x: (x["dispositivo_codigo"], x["codigo"])), safe=False)
     _solo_admin(request)
     # El cultivo de un sensor es el de su dispositivo (un dispositivo por cultivo): no se indica aparte.

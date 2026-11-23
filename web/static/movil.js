@@ -23,7 +23,7 @@ function armar() {
       est.tab = esTecnico() ? 'solicitudes' : 'alertas'; est.montada = null; pintarTabs(); pintar();
     })), barraUsuario('barra-usuario cab-usuario')), contenido, tabs);
   est.tab = esTecnico() ? 'solicitudes' : 'hoy'; est.montada = null; pintarTabs(); refrescar();
-  clearInterval(temporizador); temporizador = setInterval(refrescar, RELE ? 6000 : 5000);
+  clearInterval(temporizador); temporizador = setInterval(() => { if (!document.hidden) refrescar(); }, RELE ? 15000 : 10000);
 }
 function pintarTabs() {
   const n = datos ? datos.panel.totales.alertas_abiertas : 0;
@@ -104,7 +104,7 @@ async function montarTab(construir) {
   if (est.montada === est.tab) return;
   est.montada = est.tab; clearInterval(est.timerTab);
   const zona = el('div', { class: 'zona-tab' }); vaciar(contenido).append(zona);
-  try { const r = await construir(zona); if (r && r.refrescar && est.montada === est.tab) est.timerTab = setInterval(() => { r.refrescar().catch(() => {}); }, r.cada || 15000); }
+  try { const r = await construir(zona); if (r && r.refrescar && est.montada === est.tab) est.timerTab = setInterval(() => { if (!document.hidden) r.refrescar().catch(() => {}); }, Math.max(r.cada || 15000, RELE ? 15000 : 10000)); }
   catch (e) { vaciar(zona).append(el('p', { class: 'aviso error' }, mensajeError(e))); est.montada = null; }
 }
 function actualizarVivos() {
@@ -287,7 +287,7 @@ async function hBitacora(cuerpo) {
 }
 
 async function hComparacion(cuerpo) {
-  const tipos = await api.get('/tipos-sensor');
+  const tipos = (await api.get('/tipos-sensor')).filter((t) => t.en_uso !== false);   // solo variables que algún cultivo muestra
   const variable = seleccion(tipos.map((t) => [t.tipo_variable, `${t.nombre} (${t.unidad})`]), 'nivel_agua');
   const periodo = seleccion([['6', 'Últimas 6 horas'], ['24', 'Últimas 24 horas'], ['168', 'Últimos 7 días']], '6');
   const zona = el('div', {});

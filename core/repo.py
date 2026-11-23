@@ -13,7 +13,7 @@ import uuid
 from core.rtdb import rtdb
 
 _cache, _lock = {}, threading.Lock()
-TTL = {"usuarios": 10, "dispositivos": 1.5}
+TTL = {"usuarios": 10, "dispositivos": 30}   # la ingesta y el monitor mantienen «dispositivos» al día en memoria (parchar)
 PARAMETROS_INICIALES = {
     "minutos_sin_comunicacion": ("5", "Minutos sin recibir datos para considerar a un dispositivo sin comunicación "
                                       "(valor de demostración, validar con la contraparte)"),
@@ -53,6 +53,19 @@ def invalidar(*nombres):
     with _lock:
         for n in (nombres or list(_cache)):
             _cache.pop(n, None)
+
+
+def parchar(nombre, id_, campos: dict):
+    """Aplica en la caché los cambios que este proceso ya escribió en Firebase, sin volver a descargar la colección.
+    Un valor None borra el campo. Si la colección no está en caché no hace nada (se leerá completa la próxima vez)."""
+    with _lock:
+        c = _cache.get(nombre)
+        if not c or id_ not in c[1]:
+            return
+        reg = {**c[1][id_], **campos}
+        for k in [k for k, v in campos.items() if v is None]:
+            reg.pop(k, None)
+        _cache[nombre] = (c[0], {**c[1], id_: reg})
 
 
 def guardar(nombre, id_, datos):

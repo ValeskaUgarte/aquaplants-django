@@ -49,7 +49,7 @@ async function enrutar() {
   try {
     const r = await (solo[rol] && !solo[rol].includes(ruta) ? error(403) : (vistas[ruta] || error(404)))(zona);
     if (mio !== vistaActiva) return;
-    if (r && r.refrescar) temporizador = setInterval(async () => { if (mio === vistaActiva) { try { await r.refrescar(); } catch { /* reintenta */ } } }, r.cada || 5000);
+    if (r && r.refrescar) temporizador = setInterval(async () => { if (mio === vistaActiva && !document.hidden) { try { await r.refrescar(); } catch { /* reintenta */ } } }, r.cada || 5000);
   } catch (e) { if (mio === vistaActiva) vaciar(zona).append(aviso('error', mensajeError(e))); }
 }
 const encabezado = (titulo, ...extra) => el('header', { class: 'encabezado' }, el('h2', {}, titulo), ...extra);
@@ -95,7 +95,7 @@ async function vPanel(cont) {
       !d.instalaciones.length ? el('p', { class: 'ayuda' }, 'No tienes instalaciones asignadas. Solicita acceso a un administrador.') : null);
   };
   await cargar();
-  return { refrescar: cargar, cada: 5000 };
+  return { refrescar: cargar, cada: 10000 };
 }
 
 /* Instalación */
@@ -138,7 +138,7 @@ async function pestanaEstado(cuerpo, id) {
     }
   };
   await cargar();
-  return { refrescar: cargar, cada: 5000 };
+  return { refrescar: cargar, cada: 10000 };
 }
 
 const RANGOS = { '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000 };
@@ -217,14 +217,14 @@ async function listaAlertas(cuerpo, instalacionId, destacar = null) {
     if (elegida) { elegida.classList.add('destacada'); if (!est.yaMostrada) { est.yaMostrada = true; elegida.scrollIntoView({ block: 'start' }); } }
   }
   await cargar();
-  return { refrescar: cargar, cada: 5000 };
+  return { refrescar: cargar, cada: 10000 };
 
 }
 async function vAlertasPagina(id) { const z = contenido.firstChild; vaciar(z).append(encabezado('Alertas')); const c = el('div', {}); z.append(c); return listaAlertas(c, undefined, id || null); }
 
 /* Comparación (supervisor y administrador) */
 async function vComparacion() {
-  const z = contenido.firstChild, tipos = await api.get('/tipos-sensor');
+  const z = contenido.firstChild, tipos = (await api.get('/tipos-sensor')).filter((t) => t.en_uso !== false);   // solo variables que algún cultivo muestra
   const est = { variable: tipos[0] ? tipos[0].tipo_variable : '', rango: '24h', agrupar: 'cultivo' };
   const res = el('div', {});
   const selV = el('select', { onchange: (e) => { est.variable = e.target.value; cargar(); } }, tipos.map((t) => el('option', { value: t.tipo_variable }, t.nombre)));
@@ -322,7 +322,7 @@ async function vSimulacion() {
         { titulo: 'Aceptadas', num: true, campo: 'aceptadas' }, { titulo: 'Rechazadas', num: true, campo: 'rechazadas' }, { titulo: 'Duplicadas', num: true, campo: 'duplicadas' }], s.dispositivos));
   };
   await cargar();
-  return { refrescar: cargar, cada: 4000 };
+  return { refrescar: cargar, cada: 8000 };
 }
 
 iniciarSesion(raiz, 'Ingreso a AquaPlants', armar);

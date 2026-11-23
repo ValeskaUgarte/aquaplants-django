@@ -16,3 +16,7 @@ body.consola { background: #f8f8f8; }
 .ico-img { display:inline-block; object-fit:contain; vertical-align:middle; }
 .modulo a { display:flex; align-items:center; gap:.5rem; }
 .ico-menu { width:1.7rem; height:1.5rem; }
+
+/* Variables que muestra cada cultivo (Administración › Cultivos y plantas) */
+.lista-casillas { display:grid; grid-template-columns:repeat(auto-fill, minmax(16rem, 1fr)); gap:.35rem .9rem; margin:.6rem 0; }
+.lista-casillas .casilla { display:flex; align-items:center; gap:.4rem; font-size:.92rem; }

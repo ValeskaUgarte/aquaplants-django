@@ -14,8 +14,7 @@ def revisar_dispositivos() -> int:
     """Marca como sin comunicación a los dispositivos en línea que no reportan dentro del plazo configurado."""
     minutos = max(1, repo.parametro_int("minutos_sin_comunicacion", 5))
     limite, ahora, mapa, caidos = ahora_ms() - minutos * 60_000, ahora_ms(), {}, 0
-    repo.invalidar("dispositivos")
-    cultivos = repo.col("cultivos")
+    cultivos = repo.col("cultivos")         # «dispositivos» viene de la caché: la ingesta la mantiene al día (repo.parchar)
     for d in repo.lista("dispositivos"):
         if not d.get("activo", True) or d.get("estado_conexion") != "en_linea" or (d.get("ultima_comunicacion") or 0) >= limite:
             continue

@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 
 from core import alertas as modulo_alertas
-from core import repo
+from core import repo, variables
 from core.vistas.mantencion import ACCIONES as ACCIONES_MANT, ESTADOS as ESTADOS_MANT, RESOLUCIONES, TIPOS as TIPOS_MANT
 from core.http import ErrorApi
 from core.rtdb import rtdb
@@ -83,7 +83,7 @@ def _sensores_filtrados(f):
     salida = []
     for s in repo.lista("sensores"):
         d, t = disp.get(s["dispositivo_id"]), tipos.get(s["tipo_sensor_id"])
-        if not d or not t:
+        if not d or not t or not variables.visible(d, t["tipo_variable"]):     # solo las variables relevantes del cultivo
             continue
         if f["instalacion_id"] and d["instalacion_id"] != f["instalacion_id"]:
             continue

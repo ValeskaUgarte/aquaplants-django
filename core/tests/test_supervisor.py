@@ -153,8 +153,8 @@ class FlujoSupervisorTests(Base):
 
 class SensoresAmpliadosTests(Base):
     def test_cada_variable_nueva_genera_su_alerta(self):
-        casos = [("NIV1", "nivel_agua", 20, "%"), ("LUZ1", "luz_intensidad", 5, "klx"), ("NIT1", "nitrogeno", 30, "ppm"),
-                 ("PH1", "ph", 8.5, "pH"), ("CO21", "co2", 2000, "ppm"), ("NH31", "amoniaco", 30, "ppm")]
+        casos = [("NIV1", "nivel_agua", 20, "%"), ("PPF1", "ppfd", 20, "µmol/m²/s"), ("NIT1", "nitrogeno", 30, "ppm"),
+                 ("PH1", "ph", 8.5, "pH"), ("TEM1", "temperatura", 35, "°C"), ("NH31", "amoniaco", 30, "ppm")]
         r = self.enviar([self.med(c, t, v, u) for c, t, v, u in casos]).json()
         self.assertEqual(len(r["alertas_generadas"]), len(casos), r)
 

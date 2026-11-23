@@ -173,7 +173,7 @@ async function vApi(zona) {
           el('p', {}, enNube ? `Conectada a la nube${fb.proyecto ? ` (proyecto «${fb.proyecto}»)` : ''}.` : 'Hoy el sistema guarda todo dentro de este servidor, sin internet. Para usar la nube de Firebase se configura una sola vez en el archivo .env del servidor.'),
           el('p', { class: 'suave' }, 'Es seguro conectarla mientras las reglas de la base bloqueen el acceso directo y la clave se quede solo en el servidor.'),
           fb.consola ? el('a', { class: 'boton-secundario', href: fb.consola, target: '_blank', rel: 'noopener' }, ICO('firebase', 'ico-btn'), 'Abrir la consola de Firebase') : null)),);
-  return { refrescar: cargar, cada: 5000 };
+  return { refrescar: cargar, cada: 10000 };
 }
 
 /*  Simulación: cada falla lleva su icono en color y, mientras está activa en el equipo elegido, su botón queda marcado  */

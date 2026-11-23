@@ -73,8 +73,27 @@ async function secInstalaciones(z) {
 
 /*  Cultivos y plantas  */
 async function secCultivos(z) {
-  const m = marco(z), [insts, cultivos, plantas, disp] = await Promise.all([api.get('/instalaciones'), api.get('/cultivos'), api.get('/plantas'), api.get('/dispositivos')]);
+  const m = marco(z), [insts, cultivos, plantas, disp, tipos] = await Promise.all([api.get('/instalaciones'), api.get('/cultivos'), api.get('/plantas'), api.get('/dispositivos'), api.get('/tipos-sensor')]);
   const recargar = () => secCultivos(z);
+  /* Variables que muestra el cultivo: se respetan en todos los paneles (web y app) y una variable oculta no genera alertas. */
+  const editarVariables = (c) => {
+    const marcadas = new Set(c.variables || tipos.map((t) => t.tipo_variable));
+    const casillas = tipos.map((t) => el('label', { class: 'casilla' }, el('input', { type: 'checkbox', value: t.tipo_variable, checked: marcadas.has(t.tipo_variable) }),
+      ` ${t.nombre} (${t.unidad})${t.simulado ? ' · solo simulación' : ''}`));
+    const msg = el('div', {});
+    const guardar = async (ev) => {
+      ev.preventDefault();
+      const elegidas = casillas.map((x) => x.querySelector('input')).filter((i) => i.checked).map((i) => i.value);
+      if (!elegidas.length) { vaciar(msg).append(aviso('error', 'Marca al menos una variable.')); return; }
+      try { await api.patch(`/cultivos/${c.id}`, { variables: elegidas }); m.cerrarForm(); m.ok(`Variables de ${c.nombre} actualizadas.`); await recargar(); }
+      catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); }
+    };
+    m.mostrarForm(el('form', { class: 'panel-form tarjeta', onsubmit: guardar }, el('h3', {}, `Variables que muestra ${c.nombre}`),
+      el('p', { class: 'ayuda' }, 'Solo las marcadas aparecen en los paneles de este cultivo (web y app móvil) y generan alertas. Las mediciones de las demás se siguen guardando.'),
+      el('div', { class: 'lista-casillas' }, casillas), el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'submit' }, 'Guardar variables'),
+        el('button', { class: 'boton-secundario', type: 'button', onclick: m.cerrarForm }, 'Cancelar')), msg));
+  };
+  const resumenVariables = (c) => (c.variables ? `${c.variables.length} de ${tipos.length} variables visibles` : 'todas las variables visibles');
   const nuevoC = () => m.mostrarForm(formulario({ textoBoton: 'Crear cultivo', onCancelar: m.cerrarForm, campos: [
     { nombre: 'instalacion_id', etiqueta: 'Instalación', tipo: 'select', opciones: opciones(insts, 'id', 'nombre'), requerido: true },
     { nombre: 'nombre', etiqueta: 'Nombre del cultivo', tipo: 'text', requerido: true, ayuda: 'Ejemplo: Lechuga, Albahaca, Tomate cherry.' }, { nombre: 'descripcion', etiqueta: 'Descripción', tipo: 'text' }],
@@ -86,7 +105,8 @@ async function secCultivos(z) {
     el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevoC }, 'Nuevo cultivo')),
     ...cultivos.map((c) => { const d = disp.find((x) => x.cultivo_id === c.id); return el('section', { class: 'bloque' },
       el('h3', {}, c.nombre, el('small', {}, ` (${nombreDe(insts, c.instalacion_id)}) · ${d ? `dispositivo ${d.codigo}` : 'SIN dispositivo asignado'}`)),
-      el('div', { class: 'acciones' }, botonTexto('Agregar planta', () => nuevaP(c)),
+      el('p', { class: 'ayuda' }, `Variables: ${resumenVariables(c)}.`),
+      el('div', { class: 'acciones' }, botonTexto('Variables que muestra', () => editarVariables(c)), botonTexto('Agregar planta', () => nuevaP(c)),
         botonTexto('Eliminar cultivo', () => confirm('¿Eliminar este cultivo y sus plantas?') && accion(m, () => api.del(`/cultivos/${c.id}`), 'Cultivo eliminado.', recargar)())),
       tabla([{ titulo: 'Código', campo: 'codigo' }, { titulo: 'Nombre', campo: 'nombre' },
         { titulo: '', ver: (p) => botonTexto('Eliminar', accion(m, () => api.del(`/plantas/${p.id}`), 'Planta eliminada.', recargar)) }], plantas.filter((p) => p.cultivo_id === c.id), 'Sin plantas registradas.')); }));
@@ -95,7 +115,7 @@ async function secCultivos(z) {
 /*  Dispositivos y sensores  */
 let _mensajeSensores = null, _filtroSensores = '';     // el mensaje de «sensores creados» y el cultivo mostrado sobreviven a la recarga de la pantalla
 async function secDispositivos(z) {
-  const m = marco(z), [insts, disp, sens, tipos, cultivos] = await Promise.all([api.get('/instalaciones'), api.get('/dispositivos'), api.get('/sensores'), api.get('/tipos-sensor'), api.get('/cultivos')]);
+  const m = marco(z), [insts, disp, sens, tipos, cultivos] = await Promise.all([api.get('/instalaciones'), api.get('/dispositivos'), api.get('/sensores?todos=1'), api.get('/tipos-sensor'), api.get('/cultivos')]);
   const recargar = () => secDispositivos(z), secretoZona = el('div', {});
   if (_mensajeSensores) { vaciar(m.msg).append(..._mensajeSensores); _mensajeSensores = null; }
   const mostrarSecreto = (s) => vaciar(secretoZona).append(el('div', { class: 'aviso aviso-warn', role: 'alert' }, el('strong', {}, 'Secreto del dispositivo (se muestra una sola vez): '), el('code', { class: 'secreto' }, s), ' ',
@@ -184,7 +204,7 @@ async function secTipos(z) {
 
 /*  Reglas de alerta  */
 async function secReglas(z) {
-  const m = marco(z), [reglas, tipos, sens] = await Promise.all([api.get('/reglas-alerta'), api.get('/tipos-sensor'), api.get('/sensores')]), recargar = () => secReglas(z);
+  const m = marco(z), [reglas, tipos, sens] = await Promise.all([api.get('/reglas-alerta'), api.get('/tipos-sensor'), api.get('/sensores?todos=1')]), recargar = () => secReglas(z);
   const etiquetaSensor = (s) => `${s.cultivo_nombre || 'Sin cultivo'} · ${s.dispositivo_codigo} · ${s.tipo_nombre}`;
   const nueva = () => m.mostrarForm(formulario({ textoBoton: 'Crear regla', onCancelar: m.cerrarForm, campos: [
     { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true },
@@ -217,7 +237,7 @@ async function secParametros(z) {
 
 /*  Carga manual  */
 async function secManual(z) {
-  const m = marco(z), sens = await api.get('/sensores');
+  const m = marco(z), sens = await api.get('/sensores?todos=1');
   const f = { sensor_id: '', valor: '', timestamp: '' };
   const form = el('form', { class: 'panel-form' }, el('p', { class: 'ayuda' }, 'Registra una medición a mano (origen «manual»). Se valida y evalúa contra las reglas igual que una medición de dispositivo.'),
     el('label', { class: 'campo' }, el('span', {}, 'Cultivo · dispositivo · variable'), el('select', { required: true, onchange: (e) => { f.sensor_id = e.target.value; } }, el('option', { value: '' }, 'Selecciona…'),

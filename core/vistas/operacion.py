@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from django.http import JsonResponse
 
-from core import alertas as modulo_alertas
+from core import variables, alertas as modulo_alertas
 from core import notificaciones
 from core import cache_micro
 from core import repo, seguridad
@@ -97,11 +97,12 @@ def _estado_instalacion(iid):
     filas = []
     for s in repo.lista("sensores"):
         d, t = disp.get(s["dispositivo_id"]), tipos.get(s["tipo_sensor_id"])
-        if not d or not t or d["instalacion_id"] != iid or not s.get("activo", True):
+        if not d or not t or d["instalacion_id"] != iid or not s.get("activo", True) or not variables.visible(d, t["tipo_variable"]):
             continue
         u = ultima.get(s["id"])
         filas.append({
-            "sensor_id": s["id"], "codigo": s["codigo"], "nombre": s["nombre"], "tipo_nombre": t["nombre"],
+            "sensor_id": s["id"], "codigo": s["codigo"], "nombre": s["nombre"], "tipo_nombre": variables.nombre_visible(t),
+            "simulado": bool(t.get("simulado")),
             "tipo_variable": t["tipo_variable"], "unidad": t["unidad"], "cultivo": cult.get(d.get("cultivo_id"), {}).get("nombre"), "cultivo_id": d.get("cultivo_id"),
             "dispositivo_codigo": d["codigo"], "dispositivo_nombre": d["nombre"], "estado_conexion": d.get("estado_conexion", "sin_datos"),
             "ultima_comunicacion": iso(d.get("ultima_comunicacion")), "calidad_enlace": d.get("calidad_enlace"),
@@ -495,7 +496,7 @@ def comparacion(request):
     grupos, unidades, nombres = defaultdict(list), {}, {}
     for s in repo.lista("sensores"):
         t, d = tipos.get(s["tipo_sensor_id"]), disp.get(s["dispositivo_id"])
-        if not t or not d or t["tipo_variable"] != tv:
+        if not t or not d or t["tipo_variable"] != tv or not variables.visible(d, tv):
             continue
         clave = d.get("cultivo_id") if por_cultivo and d.get("cultivo_id") else d["instalacion_id"]
         unidades[clave] = t["unidad"]

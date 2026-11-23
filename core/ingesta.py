@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from django.conf import settings
 
-from core import alertas, cache_micro, notificaciones, repo, seguridad
+from core import alertas, cache_micro, notificaciones, repo, seguridad, variables
 from core.http import Campo, ErrorApi, entero, fecha_iso, numero, texto, validar
 from core.rtdb import rtdb
 from core.util import ahora_ms, clave_ms, distancia_m
@@ -201,6 +201,7 @@ def procesar_lote(disp, lote, *, origen="api", actualizar_estado=True):
 
     mapa, contadores, nuevas_ultima, diferidas = {}, {}, {}, 0
     reglas = [r for r in repo.lista("reglas") if r.get("activa", True)]
+    visibles = variables.del_cultivo(disp.get("cultivo_id"))         # una variable oculta en el cultivo no genera alertas
     for m in validas:
         s, t = m["sensor"], m["tipo"]
         ident = (s["id"], clave_ms(m["t"]))
@@ -219,7 +220,7 @@ def procesar_lote(disp, lote, *, origen="api", actualizar_estado=True):
             continue                                  # dato fuera de orden: queda en el histórico, no altera alertas
         ultimas[s["id"]] = m["t"]
         nuevas_ultima[s["id"]] = {"ts": m["t"], "valor": m["valor"], "conexion": m["estado_conexion"]}
-        aplicables = [r for r in reglas if r.get("sensor_id") == s["id"] or (not r.get("sensor_id") and r.get("tipo_sensor_id") == s["tipo_sensor_id"])]
+        aplicables = [] if visibles is not None and t["tipo_variable"] not in visibles else             [r for r in reglas if r.get("sensor_id") == s["id"] or (not r.get("sensor_id") and r.get("tipo_sensor_id") == s["tipo_sensor_id"])]
         # Un mismo valor puede incumplir varias reglas hacia el mismo lado (nivel bajo, crítico y emergencia): se alerta solo la más grave
         # (mayor severidad; a igual severidad, la de umbral más extremo) para no llenar el cultivo de alertas repetidas.
         ganadora = {}
@@ -282,6 +283,11 @@ def procesar_lote(disp, lote, *, origen="api", actualizar_estado=True):
             r.add(k)
             if len(r) > 5000:
                 r.clear()
-    repo.invalidar("dispositivos")
-    cache_micro.limpiar()
+    # Mantener las cachés al día sin volver a leer de Firebase (antes se descartaban en cada lote).
+    pref = f"dispositivos/{disp['id']}/"
+    repo.parchar("dispositivos", disp["id"], {k[len(pref):]: v for k, v in mapa.items() if k.startswith(pref)})
+    if any(k.startswith(("alertas", "estado/", "eventos")) for k in mapa) or resultado["alertas_generadas"]:
+        cache_micro.limpiar()
+    elif nuevas_ultima:
+        cache_micro.parchar("ultima", lambda u: {**u, **nuevas_ultima})
     return resultado

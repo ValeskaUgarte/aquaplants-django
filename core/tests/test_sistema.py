@@ -82,10 +82,10 @@ class DatosDeDemostracionTests(Base):
         disp = self.ids(c, "dispositivos")
         self.assertEqual(sorted(d["cultivo_nombre"] for d in disp), ["Albahaca", "Frutilla", "Lechuga", "Tomate cherry"])
         self.assertEqual(len({d["cultivo_id"] for d in disp}), 4)                  # un dispositivo por cultivo
-        # niveles distintos por cultivo: el tomate usa más nutrientes que la lechuga
-        nut = {x["cultivo"]: x["valor"] for i in self.ids(c, "instalaciones") for x in c.get("/api/estado-actual", {"instalacion_id": i["id"]}).json()
-               if x["tipo_variable"] == "nutrientes"}
-        self.assertGreater(nut["Tomate cherry"], 1.5 * nut["Lechuga"])
+        # niveles distintos por cultivo: la EC normal del tomate cherry (1,6–4,2) es mayor que la de la lechuga (1,5–2,5)
+        ec = {x["cultivo"]: x["valor"] for i in self.ids(c, "instalaciones") for x in c.get("/api/estado-actual", {"instalacion_id": i["id"]}).json()
+              if x["tipo_variable"] == "ec"}
+        self.assertGreater(ec["Tomate cherry"], ec["Lechuga"])
         reglas = self.ids(c, "reglas-alerta")
         self.assertTrue(all(r["sensor_id"] for r in reglas))                      # reglas propias de cada cultivo
         self.assertTrue(any(r["nombre"].startswith("Tomate cherry:") for r in reglas))
@@ -189,10 +189,10 @@ class CatalogoTests(Base):
 
     def test_reglas_y_parametros(self):
         c, csrf = self.entrar()
-        sid = self.sensor_id(c, "Lechuga", "nutrientes")
-        self.assertEqual(self.post(c, csrf, "/api/reglas-alerta", {"nombre": "Doble", "sensor_id": sid, "tipo_sensor_id": "nutrientes", "operador": ">", "umbral": 1}).status_code, 400)
+        sid = self.sensor_id(c, "Lechuga", "ec")
+        self.assertEqual(self.post(c, csrf, "/api/reglas-alerta", {"nombre": "Doble", "sensor_id": sid, "tipo_sensor_id": "ec", "operador": ">", "umbral": 1}).status_code, 400)
         self.assertEqual(self.post(c, csrf, "/api/reglas-alerta", {"nombre": "Ninguno", "operador": ">", "umbral": 1}).status_code, 400)
-        self.assertEqual(self.post(c, csrf, "/api/reglas-alerta", {"nombre": "Nutrientes tope", "sensor_id": sid, "operador": ">=", "umbral": 900}).status_code, 201)
+        self.assertEqual(self.post(c, csrf, "/api/reglas-alerta", {"nombre": "EC tope", "sensor_id": sid, "operador": ">=", "umbral": 3}).status_code, 201)
         p = c.get("/api/parametros").json()
         self.assertEqual({x["clave"] for x in p}, {"minutos_sin_comunicacion", "retencion_historicos_dias", "google_maps_api_key"})
         r = c.put("/api/parametros/minutos_sin_comunicacion", json.dumps({"valor": "10"}), content_type="application/json", HTTP_X_CSRF_TOKEN=csrf)
@@ -296,14 +296,14 @@ class IngestaTests(Base):
 
     def test_medicion_manual_y_validaciones(self):
         c, csrf = self.entrar()
-        sid = self.sensor_id(c, "Albahaca", "nutrientes")
-        r = self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 910})
+        sid = self.sensor_id(c, "Albahaca", "ec")
+        r = self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1.4})
         self.assertEqual(r.status_code, 201)
         self.assertEqual(rtdb().rango(f"mediciones/{sid}", ultimos=1)[0][1].get("o"), "manual")
         self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": -5}).status_code, 422)
         ts = "2026-01-01T10:00:00Z"
-        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 900, "timestamp": ts}).status_code, 201)
-        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 901, "timestamp": ts}).status_code, 409)
+        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1.3, "timestamp": ts}).status_code, 201)
+        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1.35, "timestamp": ts}).status_code, 409)
         sup, csrf2 = self.entrar("supervisor")
         self.assertEqual(self.post(sup, csrf2, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1}).status_code, 403)
 
@@ -331,7 +331,7 @@ class MonitorYEventosTests(Base):
 class HistoricoYComparacionTests(Base):
     def test_historico_agregado_y_crudo(self):
         c, _ = self.entrar()
-        sid = self.sensor_id(c, "Frutilla", "nutrientes")
+        sid = self.sensor_id(c, "Frutilla", "ec")
         h = c.get("/api/mediciones", {"sensor_id": sid}).json()
         self.assertTrue(0 < len(h["puntos"]) <= 400)
         self.assertEqual(set(h["puntos"][0]), {"t", "prom", "min", "max", "n"})
@@ -341,12 +341,12 @@ class HistoricoYComparacionTests(Base):
 
     def test_comparacion_por_cultivo_y_por_instalacion(self):
         c, _ = self.entrar("supervisor")
-        por_cultivo = c.get("/api/comparacion", {"tipo_variable": "nutrientes", "agrupar": "cultivo"}).json()
+        por_cultivo = c.get("/api/comparacion", {"tipo_variable": "ec", "agrupar": "cultivo"}).json()
         self.assertEqual(len(por_cultivo["instalaciones"]), 4)
         self.assertTrue(all(" · AQB-0" in i["nombre"] for i in por_cultivo["instalaciones"]))
         prom = {i["nombre"].split(" · ")[0]: i["promedio"] for i in por_cultivo["instalaciones"]}
         self.assertGreater(prom["Tomate cherry"], prom["Lechuga"])
-        por_inst = c.get("/api/comparacion", {"tipo_variable": "nutrientes", "agrupar": "instalacion"}).json()
+        por_inst = c.get("/api/comparacion", {"tipo_variable": "ec", "agrupar": "instalacion"}).json()
         self.assertEqual(sorted(i["nombre"] for i in por_inst["instalaciones"]), ["Invernadero Norte", "Invernadero Sur"])
 
 

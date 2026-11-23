@@ -28,7 +28,7 @@ from pathlib import Path
 
 BASE = {"caudal": 2.5, "consumo_hidrico": 0.4, "nutrientes": 800, "fotoperiodo": 16, "parametro_cultivo": 6,
         "nivel_agua": 80, "luz_intensidad": 24, "nitrogeno": 170, "fosforo": 55, "potasio": 240, "ph": 6.0, "co2": 750, "amoniaco": 2.0,
-        "temperatura": 21.0, "humedad": 65, "temperatura_ambiente": 20.0}
+        "temperatura": 21.0, "humedad": 65, "temperatura_ambiente": 22.0, "ec": 1.8, "ppfd": 180}
 
 # Fallas demostrables del cultivo: cada escenario cambia los sensores afectados (valor = f(nivel normal del cultivo)).
 # Cada una dispara UNA alerta clara (los sensores relacionados se mueven, pero sin salir de su rango).
@@ -38,14 +38,13 @@ ESCENARIOS = {
     "falta_agua":        {"etiqueta": "Falta de agua (estanque bajo)", "cambios": {"nivel_agua": lambda b: 18, "caudal": lambda b: b * 0.75}},
     "exceso_agua":       {"etiqueta": "Exceso de agua (desborde)", "cambios": {"nivel_agua": lambda b: 99, "consumo_hidrico": lambda b: b * 2.4}},
     "falla_bomba":       {"etiqueta": "Falla de bomba (caudal bajo)", "cambios": {"caudal": lambda b: b * 0.3}},
-    "falta_nutrientes":  {"etiqueta": "Falta de nutrientes", "cambios": {"nutrientes": lambda b: b * 0.55, "nitrogeno": lambda b: b * 0.8,
+    "falta_nutrientes":  {"etiqueta": "Falta de nutrientes", "cambios": {"nutrientes": lambda b: b * 0.55, "ec": lambda b: b * 0.5, "nitrogeno": lambda b: b * 0.8,
                                                                           "fosforo": lambda b: b * 0.8, "potasio": lambda b: b * 0.8}},
     "falta_nitrogeno":   {"etiqueta": "Falta de nitrógeno (N)", "cambios": {"nitrogeno": lambda b: b * 0.45}},
-    "exceso_nutrientes": {"etiqueta": "Exceso de nutrientes", "cambios": {"nutrientes": lambda b: b * 1.5}},
-    "falta_luz":         {"etiqueta": "Falta de luz solar", "cambios": {"luz_intensidad": lambda b: b * 0.35, "fotoperiodo": lambda b: b - 2}},
-    "exceso_luz":        {"etiqueta": "Exceso de luz solar", "cambios": {"luz_intensidad": lambda b: b * 1.8, "fotoperiodo": lambda b: b + 2}},
+    "exceso_nutrientes": {"etiqueta": "Exceso de nutrientes", "cambios": {"nutrientes": lambda b: b * 1.5, "ec": lambda b: b * 1.6}},
+    "falta_luz":         {"etiqueta": "Falta de luz solar", "cambios": {"luz_intensidad": lambda b: b * 0.35, "ppfd": lambda b: b * 0.35}},
+    "exceso_luz":        {"etiqueta": "Exceso de luz solar", "cambios": {"luz_intensidad": lambda b: b * 1.8, "ppfd": lambda b: b * 1.8}},
     "gas_amoniaco":      {"etiqueta": "Gas dañino: amoníaco (NH₃)", "cambios": {"amoniaco": lambda b: b * 8}},
-    "gas_co2":           {"etiqueta": "Gas dañino: CO₂ alto", "cambios": {"co2": lambda b: b * 2.2}},
     "ph_acido":          {"etiqueta": "pH demasiado ácido", "cambios": {"ph": lambda b: b - 1.6}},
     "ph_alcalino":       {"etiqueta": "pH demasiado alcalino", "cambios": {"ph": lambda b: b + 1.6}},
     "calor":             {"etiqueta": "Temperatura de la solución alta", "cambios": {"temperatura": lambda b: 31}},
@@ -55,6 +54,7 @@ ESCENARIOS = {
     "sin_comunicacion":  {"etiqueta": "Dispositivo sin comunicación (corte prolongado)", "cambios": {}},
 }
 MAX_COLA = 2000 # memoria limitada del dispositivo: ante un corte muy largo se conservan las mediciones más recientes
+VARIACION = {"ph": 0.25, "fotoperiodo": 0.25}   # fracción de la variación normal (±10 %) que usa cada tipo
 LOTE = 150 # mediciones por envío (lotes chicos: cada uno se confirma rápido aunque la base esté en la nube)
 LOTES_POR_CICLO = 3
 AQUI = Path(__file__).resolve().parent
@@ -154,7 +154,8 @@ class DispositivoSimulado:
     def valor(self, sensor):
         tipo = sensor["tipo_variable"]
         b = sensor.get("base", BASE.get(tipo, 1))
-        v = b * (1 + math.sin(self.t / 12) * 0.08 + (random.random() - 0.5) * 0.04)
+        amp = VARIACION.get(tipo, 1)          # pH y fotoperiodo varían poco: con rangos angostos el ruido daría alertas falsas
+        v = b * (1 + (math.sin(self.t / 12) * 0.08 + (random.random() - 0.5) * 0.04) * amp)
         esc = ESCENARIOS.get(self.escenario_activo() or "", {}).get("cambios", {})
         if tipo in esc:
             v = esc[tipo](b) * (1 + (random.random() - 0.5) * 0.02)

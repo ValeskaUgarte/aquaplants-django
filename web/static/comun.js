@@ -25,7 +25,7 @@ const RELE = (() => {
   
   const m = location.hostname.match(/^([a-z0-9-]+)\.(web\.app|firebaseapp\.com)$/);
   if (m) return `https://${m[1]}-default-rtdb.firebaseio.com`;
-  // Pruebas desde un navegador: /movil?rele=https://aquaplants-370b7-default-rtdb.firebaseio.com/. Solo se aceptan bases de Firebase
+  // Pruebas desde un navegador: /movil?rele=https://aquaplantsdb-default-rtdb.firebaseio.com/. Solo se aceptan bases de Firebase
   // (o la base local): un enlace con otra dirección podría desviar la contraseña a un sitio ajeno.
   const q = new URLSearchParams(location.search).get('rele');
   const ok = q && /^(https:\/\/[a-z0-9-]+\.(firebaseio\.com|[a-z0-9-]+\.firebasedatabase\.app)|http:\/\/(127\.0\.0\.1|localhost):\d+)\/?$/.test(q);
@@ -90,7 +90,7 @@ async function pedir(metodo, ruta, cuerpo) {
     estado = r.status;
     datos = r.status === 204 ? null : await r.json().catch(() => null);
   }
-  if (estado === 401 && ruta !== '/auth/login' && AQ.alSalir && !AQ.enLogin) { AQ.mensajeLogin = 'Error 401: tu sesión venció o no está iniciada. Ingresa de nuevo.'; AQ.alSalir(); }
+  if (estado === 401 && ruta !== '/auth/login' && AQ.alSalir && !AQ.enLogin) AQ.alSalir();
   if (estado < 200 || estado >= 300) { const e = (datos && datos.error) || {}; throw new ErrorApi(e.mensaje || `Error ${estado}`, e.codigo, e.detalles, estado); }
   return archivo || datos;
 }
@@ -668,7 +668,7 @@ async function cargarAvisos() {
 function iniciarAvisos() {
   detenerAvisos(); Avisos.conocidas = null;
   const ciclo = () => cargarAvisos().catch(() => {});
-  ciclo(); Avisos.temporizador = setInterval(ciclo, RELE ? 8000 : 5000);
+  ciclo(); Avisos.temporizador = setInterval(() => { if (!document.hidden) ciclo(); }, RELE ? 20000 : 15000);
 }
 function detenerAvisos() { clearInterval(Avisos.temporizador); Avisos.temporizador = null; Avisos.conocidas = null; Avisos.items = []; Avisos.noLeidas = 0; }
 
