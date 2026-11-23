@@ -22,14 +22,14 @@ async function mostrar(nav) {
 function armar() {
   vaciar(raiz);
   if (AQ.usuario.rol !== 'administrador') {
-    raiz.append(el('div', { class: 'login-caja' }, el('div', { class: 'login' }, el('h1', {}, 'Acceso restringido'), el('p', {}, 'Esta consola es solo para el rol Administrador.'),
-      el('a', { class: 'boton', href: '/' }, 'Volver al sistema'), el('button', { class: 'boton-secundario', type: 'button', onclick: cerrarSesion }, 'Cambiar de usuario'))));
+    raiz.append(el('div', { class: 'login-caja' }, el('div', { class: 'login' }, pantallaErrorNumero(403, () => { location.href = '/'; }), el('p', {}, 'Esta consola es solo para el rol Administrador.'),
+      barraUsuario(), el('button', { class: 'boton-secundario', type: 'button', onclick: cerrarSesion }, 'Cambiar de usuario'))));
     return;
   }
   const nav = el('nav', { class: 'menu-consola', 'aria-label': 'Módulos' });
   zona = el('main', { class: 'zona-consola' });
   raiz.append(el('header', { class: 'cab-consola' }, logo('logo-consola'), el('h1', {}, 'Administración de AquaPlants'), el('span', { class: 'espacio' }),
-    el('span', {}, `Bienvenido, ${AQ.usuario.nombre}. `), el('a', { href: '/' }, 'Ver el sitio'), ' / ', el('button', { type: 'button', class: 'boton-texto claro', onclick: cerrarSesion }, 'Cerrar sesión')),
+    barraUsuario('barra-usuario claro'), el('a', { href: '/' }, 'Ver el sitio'), ' / ', el('button', { type: 'button', class: 'boton-texto claro', onclick: cerrarSesion }, 'Cerrar sesión')),
     el('div', { class: 'cuerpo-consola' }, nav, zona));
   window.addEventListener('hashchange', () => mostrar(nav));
   mostrar(nav);

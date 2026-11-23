@@ -13,6 +13,7 @@ from django.http import HttpResponse, JsonResponse
 
 from core import repo, seguridad
 from core.rtdb import ErrorRTDB
+from core.paginas_error import pagina_error, quiere_pagina
 from core.util import iso_a_ms
 
 log = logging.getLogger("aquaplants.http")
@@ -221,16 +222,22 @@ def ruta(metodos, roles=None, sesion=True, limite="api", bruto=False):
                     request.usuario, request.sesion, request.token = usuario, ses, token
                 return vista(request, **kw)
             except ErrorApi as e:
+                if quiere_pagina(request):                       # alguien abrió la dirección de la API en el navegador: se le muestra el número
+                    return pagina_error(e.estado, e.mensaje)
                 cuerpo = {"codigo": e.codigo, "mensaje": e.mensaje}
                 if e.detalles:
                     cuerpo["detalles"] = e.detalles
                 return JsonResponse({"error": cuerpo}, status=e.estado)
             except ErrorRTDB as e:
                 log.error("Base de datos: %s", e)
+                if quiere_pagina(request):
+                    return pagina_error(503)
                 return JsonResponse({"error": {"codigo": "bd_no_disponible",
                                                "mensaje": "La base de datos no está disponible. Intenta de nuevo."}}, status=503)
             except Exception:  # noqa: BLE001
                 log.exception("Error no controlado en %s", request.path)
+                if quiere_pagina(request):
+                    return pagina_error(500)
                 return JsonResponse({"error": {"codigo": "error_interno", "mensaje": "Error interno."}}, status=500)
         return envoltura
     return deco

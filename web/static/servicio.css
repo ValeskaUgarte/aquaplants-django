@@ -210,3 +210,36 @@ details.proceso > summary { cursor:pointer; font-weight:700; color:#0b6e4f; padd
 /* Selector de rutas de la API */
 .api-barra { display:flex; align-items:center; gap:.6rem; margin:.4rem 0; }
 .api-selector { font-family:Consolas,monospace; font-size:.9rem; padding:.45rem .6rem; border:1px solid #b9cfc3; border-radius:8px; min-width:320px; }
+
+/* ---------------------------------------------------------
+   Barra superior con el usuario y su rol · pantalla de error con número · «olvidé mi contraseña»
+   --------------------------------------------------------- */
+.barra-usuario { display:inline-flex; align-items:center; gap:.5rem; min-width:0; }
+.barra-nombre { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rol-chip { border-radius:999px; padding:.15rem .7rem; font-size:.75rem; font-weight:800; background:#e3f3e8; color:#1b6e3d; white-space:nowrap; }
+.rol-admin { background:#fdeaea; color:#a11d1d; } .rol-sup { background:#e1ecfb; color:#1565c0; } .rol-enc { background:#e3f3e8; color:#1b6e3d; } .rol-tec { background:#fff1d6; color:#8a5a00; }
+.columna { min-width:0; display:flex; flex-direction:column; }
+.barra-sup { display:flex; justify-content:flex-end; align-items:center; gap:.6rem; padding:.55rem 1.4rem; background:#fff; border-bottom:1px solid #dde3e7; position:sticky; top:0; z-index:20; }
+.barra-sup-etq { font-size:.78rem; color:#6b7a73; }
+.cabecera { flex-wrap:wrap; }
+.cab-usuario { flex:1 1 100%; order:3; padding-top:.1rem; }
+.cab-usuario .rol-chip { background:#fff; color:#0b6e4f; } .cab-usuario .barra-nombre { color:#fff; font-size:.85rem; }
+.barra-usuario.claro .rol-chip { background:#fff; color:#0b6e4f; } .barra-usuario.claro .barra-nombre { color:#fff; }
+.error-interno { text-align:center; padding:3rem 1rem; display:grid; gap:.6rem; justify-items:center; }
+.error-interno-num { font-size:5rem; font-weight:800; color:#0b6e4f; margin:0; line-height:1; }
+.error-interno h2 { margin:0; }
+.boton-texto.olvide { display:block; margin:.4rem auto 0; text-decoration:underline; }
+
+/* Iconos en pasos de la visita, títulos y botones de simulación marcados */
+.ot-punto { width:2.3rem; height:2.3rem; background:#eef2f0; }
+.ot-punto .ico-paso { width:1.6rem; height:1.45rem; }
+.ot-pasos li:not(.hecho):not(.actual) .ico-paso { opacity:.3; filter:grayscale(1); }
+.ot-pasos li.hecho .ot-punto { background:#e3f3e8; box-shadow:0 0 0 2px #1b8a4b inset; } .ot-pasos li.actual .ot-punto { background:#fff; }
+.ot-pasos li:not(:last-child)::after { top:1.1rem; left:calc(50% + 1.3rem); right:calc(-50% + 1.3rem); }
+h4.con-ico,h5.con-ico { display:flex; align-items:center; gap:.5rem; } .ico-h { width:1.9rem; height:1.7rem; }
+.boton-escenario { display:flex; align-items:center; gap:.6rem; text-align:left; width:100%; box-sizing:border-box; border:2px solid transparent; position:relative; }
+.boton-escenario .ico-esc { width:2.3rem; height:2.1rem; flex:none; margin:0; } .boton-escenario .esc-txt { flex:1; }
+.boton-escenario.activo { border-color:#1b8a4b; background:#e3f3e8; box-shadow:0 0 0 3px rgba(27,138,75,.25); }
+.esc-marca { font-size:.75rem; font-weight:800; color:#1b6e3d; background:#fff; border-radius:999px; padding:.15rem .6rem; white-space:nowrap; }
+.botones-escenario,.rejilla-botones { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:.5rem; }
+.sim-activa { display:flex; align-items:center; gap:.4rem; font-weight:700; color:#1b6e3d; background:#e3f3e8; border-radius:10px; padding:.5rem .8rem; margin:.3rem 0; }

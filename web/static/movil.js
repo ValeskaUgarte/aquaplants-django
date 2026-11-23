@@ -21,7 +21,7 @@ function armar() {
       if (!esTecnico() && destinoAviso(n) === 'servicio') { abrirPantalla('Servicio técnico', (c) => vServicioTecnico(c)); return; }
       AQ.abrirOrden = n.mantencion_id || null; if (!esTecnico()) AQ.abrirAlerta = n.alerta_id || null;
       est.tab = esTecnico() ? 'solicitudes' : 'alertas'; est.montada = null; pintarTabs(); pintar();
-    }))), contenido, tabs);
+    })), barraUsuario('barra-usuario cab-usuario')), contenido, tabs);
   est.tab = esTecnico() ? 'solicitudes' : 'hoy'; est.montada = null; pintarTabs(); refrescar();
   clearInterval(temporizador); temporizador = setInterval(refrescar, RELE ? 6000 : 5000);
 }
@@ -321,15 +321,17 @@ async function abrirSimulacion(codigo) { abrirPantalla('Simular fallas', (c, h) 
 async function hSimulacion(cuerpo, h, preseleccion) {
   const s = await api.get('/simulacion');
   if (!s.disponible) { vaciar(cuerpo).append(el('p', { class: 'aviso' }, 'La simulación no está activa en este servidor (AQ_SIMULACION=0 o dispositivos reales).')); return; }
-  const disp = seleccion(s.dispositivos.map((d) => [d.codigo, `${d.cultivo} · ${d.codigo}`]), preseleccion || (h.ultimo || s.dispositivos[0].codigo));
-  disp.addEventListener('change', () => { h.ultimo = disp.value; });
+  const disp = seleccion(s.dispositivos.map((d) => [d.codigo, `${d.cultivo} · ${d.codigo}`]), h.ultimo || preseleccion || s.dispositivos[0].codigo);
+  disp.addEventListener('change', () => { h.ultimo = disp.value; h.recargar(); });
+  const actual = (s.dispositivos.find((d) => d.codigo === disp.value) || {}).escenario;
   const ejecutar = (cuerpoAccion, ok) => accion(() => api.post('/simulacion/accion', { ...cuerpoAccion, dispositivo: disp.value }), ok, async () => { h.ultimo = disp.value; await h.recargar(); });
   const etiqueta = Object.fromEntries(s.escenarios.map((e) => [e.codigo, e.etiqueta]));
   vaciar(cuerpo).append(
     el('p', { class: 'nota' }, 'Elige el cultivo y la falla. La alerta aparece en segundos (cuando el dispositivo envía su lectura) y la falla sigue hasta que alguien da la solución. «Sin comunicación» aparece después de los minutos configurados en Parámetros.'),
     campo('Cultivo / dispositivo', disp),
-    el('div', { class: 'rejilla-botones' }, s.escenarios.map((e) => el('button', { type: 'button', class: `boton sec ${e.codigo === 'sin_comunicacion' ? 'peligro' : ''}`,
-      onclick: () => ejecutar({ accion: 'escenario', escenario: e.codigo }, `Falla provocada: ${e.etiqueta}`) }, e.etiqueta))),
+    actual ? el('p', { class: 'sim-activa' }, ICO(ICONO_ESCENARIO[actual] || 'alerta-detectada-c', 'ico-btn'), `Falla activa en este equipo: ${etiqueta[actual] || actual}`) : null,
+    el('div', { class: 'rejilla-botones' }, s.escenarios.map((e) => botonEscenario(e, actual === e.codigo, `boton sec ${e.codigo === 'sin_comunicacion' ? 'peligro' : ''}`, false,
+      () => ejecutar({ accion: 'escenario', escenario: e.codigo }, `Falla provocada: ${e.etiqueta}`)))),
     el('button', { type: 'button', class: 'boton', onclick: () => ejecutar({ accion: 'reparar' }, 'Falla terminada en el dispositivo simulado') }, ICO('terminar-falla', 'ico-btn'), 'Terminar la falla de este dispositivo'),
     el('h2', {}, 'Estado de los dispositivos simulados'),
     ...s.dispositivos.map((d) => el('div', { class: 'tarjeta' }, el('div', { class: 'fila' }, el('strong', {}, `${d.cultivo} · ${d.codigo}`),

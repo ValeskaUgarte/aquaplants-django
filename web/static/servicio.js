@@ -176,6 +176,16 @@ async function vApi(zona) {
   return { refrescar: cargar, cada: 5000 };
 }
 
+/*  Simulación: cada falla lleva su icono en color y, mientras está activa en el equipo elegido, su botón queda marcado  */
+const ICONO_ESCENARIO = { agua_emergencia: 'emergencia-agua-c', falta_agua: 'falta-agua-c', exceso_agua: 'exceso-agua-c', falla_bomba: 'falla-bomba-c', falta_nutrientes: 'falta-nutrientes-c',
+  falta_nitrogeno: 'falta-nitrogeno-c', exceso_nutrientes: 'exceso-nutrientes-c', falta_luz: 'falta-luz-c', exceso_luz: 'exceso-luz-c', gas_amoniaco: 'gas-amoniaco-c', gas_co2: 'gas-co2-c',
+  ph_acido: 'ph-acido-c', ph_alcalino: 'ph-alcalino-c', calor: 'temperatura-alta-c', humedad_alta: 'humedad-alta-c', humedad_baja: 'humedad-baja-c', helada: 'helada-c',
+  sin_comunicacion: 'sin-comunicacion-prolongada-c' };
+function botonEscenario(e, activo, clase, deshabilitado, alTocar) {
+  return el('button', { type: 'button', class: `${clase} boton-escenario${activo ? ' activo' : ''}`, 'aria-pressed': activo ? 'true' : 'false', disabled: deshabilitado, onclick: alTocar },
+    ICO(ICONO_ESCENARIO[e.codigo] || 'alerta-detectada-c', 'ico-esc'), el('span', { class: 'esc-txt' }, e.etiqueta), activo ? el('span', { class: 'esc-marca' }, '✓ Activa') : null);
+}
+
 /*  Órdenes de trabajo del técnico: lo nuevo (asignado o en la bolsa), lo que está haciendo y lo ya cerrado  */
 async function vOrdenesTecnico(zona) {
   const kp = el('div', { class: 'kpis ot-kpis' }), seg = el('div', { class: 'segmento ot-seg' }), lista = el('div', { class: 'lista-ot' });
@@ -249,19 +259,19 @@ function graficoDias(serie) {                                         // barras 
 async function vEstadisticas(zona) {
   const dias = Number(zona.dataset.dias || 30), e = await api.get(`/estadisticas${qs({ dias })}`), m = e.mantenciones;
   const selDias = el('select', { onchange: (ev) => { zona.dataset.dias = ev.target.value; vEstadisticas(zona); } }, [7, 30, 90, 180].map((d) => el('option', { value: d, selected: d === dias }, `Últimos ${d} días`)));
-  const bloqueMant = el('section', { class: 'card-informe' }, el('h4', {}, 'Servicio técnico'),
-    el('div', { class: 'kpis' }, kpi('Solicitudes', m.total, null, 'visita-tecnico'), kpi('Abiertas ahora', m.abiertas, m.en_bolsa ? `${m.en_bolsa} en la bolsa` : null), kpi('Realizadas', m.completadas), kpi('Canceladas', m.canceladas),
-      kpi('Respuesta media', minTxt(m.respuesta_min), 'hasta que se acepta'), kpi('Resolución media', minTxt(m.resolucion_min), 'hasta que se cierra')),
+  const bloqueMant = el('section', { class: 'card-informe' }, el('h4', { class: 'con-ico' }, ICO('servicio-tecnico', 'ico-h'), 'Servicio técnico'),
+    el('div', { class: 'kpis' }, kpi('Solicitudes', m.total, null, 'visita-tecnico'), kpi('Abiertas ahora', m.abiertas, m.en_bolsa ? `${m.en_bolsa} en la bolsa` : null, 'abiertas-ahora'), kpi('Realizadas', m.completadas, null, 'realizadas'), kpi('Canceladas', m.canceladas, null, 'canceladas'),
+      kpi('Respuesta media', minTxt(m.respuesta_min), 'hasta que se acepta', 'respuesta-media'), kpi('Resolución media', minTxt(m.resolucion_min), 'hasta que se cierra', 'resolucion-media')),
     el('div', { class: 'dos-col' }, el('div', {}, el('h5', {}, 'Cómo terminaron'), barrasH(m.por_resolucion)), el('div', {}, el('h5', {}, 'Qué se pidió'), barrasH(m.por_accion)), el('div', {}, el('h5', {}, 'Tipo de falla'), barrasH(m.por_tipo))));
   vaciar(zona);
   if (e.rol === 'tecnico') return zona.append(el('div', { class: 'barra-filtros' }, el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Período'), selDias)), bloqueMant);
   const k = e.kpis, d = e.dispositivos, auto = k.resueltas ? Math.round((100 * k.automaticas) / k.resueltas) : null;
   zona.append(el('div', { class: 'barra-filtros' }, el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Período'), selDias)),
-    el('div', { class: 'kpis' }, kpi('Alertas', k.alertas, `${k.abiertas} sin resolver`, 'alertas-abiertas'), kpi('Resueltas', k.resueltas, auto == null ? null : `${auto} % solas`, 'resueltas'), kpi('Tiempo de respuesta', minTxt(k.respuesta_min), 'hasta reconocerla'),
-      kpi('Tiempo de resolución', minTxt(k.resolucion_min)), kpi('Soluciones cuestionadas', k.cuestionadas, 'la medición no las respaldó'), kpi('Cortes de comunicación', k.cortes, null, 'perdio-comunicacion'), kpi('Movimientos de equipos', k.movimientos),
+    el('div', { class: 'kpis' }, kpi('Alertas', k.alertas, `${k.abiertas} sin resolver`, 'alertas-abiertas'), kpi('Resueltas', k.resueltas, auto == null ? null : `${auto} % solas`, 'resueltas'), kpi('Tiempo de respuesta', minTxt(k.respuesta_min), 'hasta reconocerla', 'tiempo-respuesta'),
+      kpi('Tiempo de resolución', minTxt(k.resolucion_min), null, 'tiempo-resolucion'), kpi('Soluciones cuestionadas', k.cuestionadas, 'la medición no las respaldó', 'soluciones-cuestionadas'), kpi('Cortes de comunicación', k.cortes, null, 'perdio-comunicacion'), kpi('Movimientos de equipos', k.movimientos, null, 'movimientos-equipos'),
       kpi('Dispositivos en línea', `${d.en_linea} de ${d.total}`, `${d.sin_comunicacion} sin comunicación · ${d.con_gps} con GPS`, 'dispositivos-en-linea')),
     el('section', { class: 'card-informe' }, el('h4', {}, 'Alertas por día'), graficoDias(e.serie)),
-    el('div', { class: 'dos-col' }, el('section', { class: 'card-informe' }, el('h4', {}, 'Por tipo'), barrasH(e.por_tipo), el('h5', {}, 'Por severidad'), barrasH(e.por_severidad)),
-      el('section', { class: 'card-informe' }, el('h4', {}, 'Cultivos con más alertas'), barrasH(e.por_cultivo)),
-      el('section', { class: 'card-informe' }, el('h4', {}, 'Dispositivos con más cortes'), barrasH(e.cortes_por_dispositivo, 'Ningún corte en este período.'))), bloqueMant);
+    el('div', { class: 'dos-col' }, el('section', { class: 'card-informe' }, el('h4', { class: 'con-ico' }, ICO('por-tipo', 'ico-h'), 'Por tipo'), barrasH(e.por_tipo), el('h5', { class: 'con-ico' }, ICO('por-severidad', 'ico-h'), 'Por severidad'), barrasH(e.por_severidad)),
+      el('section', { class: 'card-informe' }, el('h4', { class: 'con-ico' }, ICO('cultivos-mas-alertas', 'ico-h'), 'Cultivos con más alertas'), barrasH(e.por_cultivo)),
+      el('section', { class: 'card-informe' }, el('h4', { class: 'con-ico' }, ICO('dispositivos-mas-cortes', 'ico-h'), 'Dispositivos con más cortes'), barrasH(e.cortes_por_dispositivo, 'Ningún corte en este período.'))), bloqueMant);
 }

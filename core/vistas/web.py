@@ -16,6 +16,14 @@ def salud(request):
         return JsonResponse({"estado": "degradado", "app": "aquaplants"}, status=503)
 
 
+from core.paginas_error import pagina_error
+
+
+def pagina_404(request, **kw):
+    """Cualquier dirección que no existe, vista desde el navegador: página con su número (404)."""
+    return pagina_error(404)
+
+
 def no_encontrado_api(request, path=""):
     return JsonResponse({"error": {"codigo": "no_encontrado", "mensaje": "Ruta no encontrada."}}, status=404)
 

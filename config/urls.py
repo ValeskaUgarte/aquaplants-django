@@ -14,6 +14,8 @@ urlpatterns = [
     path("api/auth/login", auth.login),
     path("api/auth/me", auth.me),
     path("api/auth/logout", auth.logout),
+    path("api/auth/olvide", auth.olvide),
+    path("api/auth/restablecer", auth.restablecer),
     path("api/auth/password", auth.cambiar_password),
     path("api/auth/2fa/iniciar", auth.dosfa_iniciar),
     path("api/auth/2fa/activar", auth.dosfa_activar),
@@ -92,4 +94,12 @@ urlpatterns = [
     path("admin", web.consola),
     path("admin/", web.consola),
     re_path(r"^static/(?P<path>.+)$", serve, {"document_root": settings.WEB_DIR / "static"}),
+    re_path(r"^(?!api/|static/).*$", web.pagina_404),            # cualquier otra dirección: 404 con su número
 ]
+
+
+# Páginas de error con su número para quien entra desde el navegador (la API responde JSON)
+handler400 = "core.paginas_error.manejador_400"
+handler403 = "core.paginas_error.manejador_403"
+handler404 = "core.paginas_error.manejador_404"
+handler500 = "core.paginas_error.manejador_500"

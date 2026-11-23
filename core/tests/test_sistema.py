@@ -415,3 +415,57 @@ class CompatibilidadFirebaseTests(Base):
         db.update({"n/c": {".sv": {"increment": 3}}})
         db.update({"n/c": {".sv": {"increment": 4}}})
         self.assertEqual(db.get("n/c"), 7)
+
+
+class RecuperacionYErroresTests(Base):
+    def _json(self, c, url, cuerpo):
+        return c.post(url, json.dumps(cuerpo), content_type="application/json")
+
+    def test_olvide_mi_contrasena_codigo_de_un_solo_uso(self):
+        from unittest import mock
+        from django.conf import settings
+        c, mail = Client(), self.correo["supervisor"]
+        antigua, nueva = self.pw["supervisor"], "Clave-Nueva-2026!ok"
+        # un correo que no existe recibe EXACTAMENTE la misma respuesta (no se puede averiguar qué correos están registrados)
+        r_no = self._json(c, "/api/auth/olvide", {"email": "nadie@ejemplo.cl"})
+        self.assertEqual(r_no.status_code, 200)
+        self.assertNotIn("codigo_demo", r_no.json())
+        with mock.patch.dict(settings.AQ, {"RECUPERACION_DEMO": True}):
+            r = self._json(c, "/api/auth/olvide", {"email": mail})
+        self.assertEqual(r.json()["mensaje"], r_no.json()["mensaje"])
+        codigo = r.json()["codigo_demo"]
+        # sin el modo demostración el código nunca viaja en la respuesta
+        self.assertNotIn("codigo_demo", self._json(c, "/api/auth/olvide", {"email": mail}).json())
+        # contraseña débil, código falso y código correcto
+        self.assertEqual(self._json(c, "/api/auth/restablecer", {"codigo": codigo, "nueva": "corta"}).status_code, 400)
+        self.assertEqual(self._json(c, "/api/auth/restablecer", {"codigo": "AQ-FALSO-00000", "nueva": nueva}).status_code, 400)
+        self.assertEqual(self._json(c, "/api/auth/restablecer", {"codigo": codigo.lower().replace("-", " "), "nueva": nueva}).status_code, 204)   # tolera minúsculas y separadores
+        self.assertEqual(self._json(Client(), "/api/auth/login", {"email": mail, "password": antigua}).status_code, 401)
+        self.assertEqual(self._json(Client(), "/api/auth/login", {"email": mail, "password": nueva}).status_code, 200)
+        self.assertEqual(self._json(c, "/api/auth/restablecer", {"codigo": codigo, "nueva": "Otra-Clave-2026!xy"}).status_code, 400)           # un solo uso
+
+    def test_codigo_vencido_no_sirve(self):
+        from unittest import mock
+        from django.conf import settings
+        from core.vistas import auth
+        c = Client()
+        with mock.patch.dict(settings.AQ, {"RECUPERACION_DEMO": True}):
+            codigo = self._json(c, "/api/auth/olvide", {"email": self.correo["supervisor"]}).json()["codigo_demo"]
+        rtdb().update({f"recuperacion/{auth._huella_codigo(codigo)}/expira": int(time.time() * 1000) - 1000})
+        self.assertEqual(self._json(c, "/api/auth/restablecer", {"codigo": codigo, "nueva": "Clave-Nueva-2026!ok"}).status_code, 400)
+
+    def test_paginas_de_error_con_su_numero_en_el_navegador_y_json_en_la_api(self):
+        c = Client()
+        nav = {"HTTP_ACCEPT": "text/html", "HTTP_SEC_FETCH_MODE": "navigate"}
+        r = c.get("/api/panel", **nav)                                   # alguien abre la API sin sesión
+        self.assertEqual(r.status_code, 401)
+        self.assertIn('class="error-num">401<', r.content.decode())
+        r = c.get("/api/panel", HTTP_ACCEPT="application/json")          # la interfaz sigue recibiendo JSON
+        self.assertEqual((r.status_code, r["Content-Type"].split(";")[0]), (401, "application/json"))
+        r = c.get("/esta-direccion-no-existe", **nav)
+        self.assertEqual(r.status_code, 404)
+        self.assertIn('class="error-num">404<', r.content.decode())
+        sup, _ = self.entrar("supervisor")
+        r = sup.get("/api/usuarios", **nav)                              # con sesión pero sin permiso
+        self.assertEqual(r.status_code, 403)
+        self.assertIn('class="error-num">403<', r.content.decode())

@@ -127,6 +127,11 @@ AQ = {
     "BOOTSTRAP_ADMIN_PASSWORD": os.environ.get("AQ_BOOTSTRAP_ADMIN_PASSWORD", ""),
     # Firebase Realtime Database. Sin AQ_FIREBASE_URL se usa el modo local compatible (sin internet).
     "FIREBASE_URL": os.environ.get("AQ_FIREBASE_URL", ""),
+    # Correo saliente (recuperación de contraseña). Sin AQ_SMTP_HOST el mensaje queda en el registro del servidor (data/correos-salientes.log).
+    "SMTP_HOST": os.environ.get("AQ_SMTP_HOST", ""), "SMTP_PORT": _env_int("AQ_SMTP_PORT", 587), "SMTP_USER": os.environ.get("AQ_SMTP_USER", ""),
+    "SMTP_PASSWORD": os.environ.get("AQ_SMTP_PASSWORD", ""), "SMTP_DE": os.environ.get("AQ_SMTP_DE", ""), "SMTP_TLS": os.environ.get("AQ_SMTP_TLS", "1") != "0",
+    # SOLO PARA DEMOSTRACIONES sin correo: 1 = la pantalla de «Olvidé mi contraseña» muestra el código en pantalla. En producción déjalo en 0.
+    "RECUPERACION_DEMO": os.environ.get("AQ_RECUPERACION_DEMO", "0") == "1",
     "URL_PUBLICA": os.environ.get("AQ_URL_PUBLICA", ""),          # dirección por la que el celular alcanza este servidor (se publica en Firebase)
     "TUNEL": os.environ.get("AQ_TUNEL", "1") != "0",              # iniciar un túnel de cloudflared si está instalado
     "RELAY": os.environ.get("AQ_RELAY", "1") != "0",              # la app móvil se conecta a través de Firebase (core/relay.py)

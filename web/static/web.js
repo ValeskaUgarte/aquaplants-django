@@ -21,8 +21,8 @@ function armar() {
       el('nav', { 'aria-label': 'Principal', id: 'menu' }, enlaces.filter((e) => e[2]).map(([h, t, , ico]) => el('a', { href: h, 'data-h': h }, ICO(ico, 'ico-nav'), t)),
         rol === 'administrador' ? el('a', { href: '/admin', class: 'externo' }, ICO('consola-django', 'ico-nav'), 'Consola Django ↗') : null),
       el('div', { class: 'usuario' }, el('strong', {}, u.nombre), el('span', {}, ROL[rol]),
-        el('button', { type: 'button', class: 'boton-texto', onclick: () => { clearInterval(temporizador); cerrarSesion(); } }, 'Cerrar sesión'))),
-    contenido));
+        el('button', { type: 'button', class: 'boton-texto', onclick: () => { clearInterval(temporizador); cerrarSesion(); } }, ICO('salir', 'ico-btn'), 'Cerrar sesión'))),
+    el('div', { class: 'columna' }, el('header', { class: 'barra-sup' }, el('span', { class: 'barra-sup-etq' }, 'Sesión iniciada como'), barraUsuario()), contenido)));
   window.removeEventListener('hashchange', enrutar);
   window.addEventListener('hashchange', enrutar);
   enrutar();
@@ -36,17 +36,18 @@ async function enrutar() {
   const [ruta, a, b] = partes;
   document.querySelectorAll('#menu a[data-h]').forEach((n) => n.classList.toggle('activo', (ruta === '' && n.dataset.h === '#/') || (ruta === 'administracion' && a === 'informes' ? n.dataset.h === '#/administracion/informes' : (ruta !== '' && n.dataset.h === `#/${ruta === 'instalacion' ? '' : ruta}` && ruta !== 'instalacion'))));
   const rol = AQ.usuario.rol;
+  const error = (codigo) => (z) => { vaciar(z).append(pantallaErrorNumero(codigo)); };         // 403: sin permiso · 404: la sección no existe
   const vistas = {
     '': () => (rol === 'tecnico' ? vServicioTecnico(zona) : vPanel()), servicio: () => vServicioTecnico(zona), ubicacion: () => vUbicacion(zona), estadisticas: () => vEstadisticas(zona),
-    instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(a), seguimiento: () => (rol === 'encargado_cultivo' ? vPanel() : vSeguimiento()),
-    comparacion: () => (rol === 'encargado_cultivo' ? vPanel() : vComparacion()), simulacion: () => (rol === 'administrador' ? vSimulacion() : vPanel()),
-    administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : vPanel()), cuenta: () => vCuenta(), api: () => (rol === 'administrador' ? vApi(zona) : vPanel()),
+    instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(a), seguimiento: () => (rol === 'encargado_cultivo' ? error(403)(zona) : vSeguimiento()),
+    comparacion: () => (rol === 'encargado_cultivo' ? error(403)(zona) : vComparacion()), simulacion: () => (rol === 'administrador' ? vSimulacion() : error(403)(zona)),
+    administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : error(403)(zona)), cuenta: () => vCuenta(), api: () => (rol === 'administrador' ? vApi(zona) : error(403)(zona)),
   };
   const zona = el('div', {});
   vaciar(contenido).append(zona);
   const solo = { tecnico: ['', 'servicio', 'ubicacion', 'estadisticas', 'cuenta'] };            // el técnico solo ve sus solicitudes, sus equipos y su cuenta
   try {
-    const r = await (vistas[solo[rol] && !solo[rol].includes(ruta) ? '' : ruta] || vistas[''])(zona);
+    const r = await (solo[rol] && !solo[rol].includes(ruta) ? error(403) : (vistas[ruta] || error(404)))(zona);
     if (mio !== vistaActiva) return;
     if (r && r.refrescar) temporizador = setInterval(async () => { if (mio === vistaActiva) { try { await r.refrescar(); } catch { /* reintenta */ } } }, r.cada || 5000);
   } catch (e) { if (mio === vistaActiva) vaciar(zona).append(aviso('error', mensajeError(e))); }
@@ -296,6 +297,7 @@ async function vSimulacion() {
     const ejecutar = async (accion, extra, ok) => { try { await api.post('/simulacion/accion', { accion, ...(extra || {}) }); if (ok) mostrarAviso(ok, 'ok'); await cargar(); } catch (e) { mostrarAviso(mensajeError(e), 'error'); } };
     const etiqueta = Object.fromEntries((s.escenarios || []).map((e) => [e.codigo, e.etiqueta]));
     if (!vSimulacion.disp || !s.dispositivos.some((d) => d.codigo === vSimulacion.disp)) vSimulacion.disp = s.dispositivos[0] && s.dispositivos[0].codigo;
+    const actual = (s.dispositivos.find((d) => d.codigo === vSimulacion.disp) || {}).escenario;
     if (document.activeElement && document.activeElement.id === 'sim-disp') return;
     if (!s.disponible) { vaciar(z).append(encabezado('Simulación'), aviso('info', 'La simulación no está activa en este servidor (AQ_SIMULACION=0 o dispositivos reales conectados).')); return; }
     const opcion = (accion, texto, valor) => el('label', { class: 'campo-check' }, el('input', { type: 'checkbox', checked: valor, onchange: () => ejecutar(accion) }), ' ', texto);
@@ -303,10 +305,11 @@ async function vSimulacion() {
       el('p', { class: 'ayuda' }, 'Cada cultivo tiene su dispositivo virtual. Envían mediciones firmadas al mismo endpoint que usaría un dispositivo físico; para pasar a hardware real solo se pausa la simulación.'),
       el('section', { class: 'panel-form' }, el('h3', {}, 'Provocar una falla del cultivo'),
         el('p', { class: 'ayuda' }, 'La alerta aparece en segundos y la falla se mantiene hasta que alguien registra «Sí, quedó solucionado» (o se termina aquí). «Sin comunicación» aparece cuando pasan los minutos del parámetro correspondiente.'),
-        el('label', { class: 'campo' }, el('span', {}, 'Cultivo / dispositivo'), el('select', { id: 'sim-disp', onchange: (e) => { vSimulacion.disp = e.target.value; } },
+        el('label', { class: 'campo' }, el('span', {}, 'Cultivo / dispositivo'), el('select', { id: 'sim-disp', onchange: (e) => { vSimulacion.disp = e.target.value; e.target.blur(); cargar(); } },
           s.dispositivos.map((d) => el('option', { value: d.codigo, selected: d.codigo === vSimulacion.disp }, `${d.cultivo} · ${d.codigo}`)))),
-        el('div', { class: 'botones-escenario' }, (s.escenarios || []).map((e) => el('button', { type: 'button', class: 'boton-secundario', disabled: !s.activa,
-          onclick: () => ejecutar('escenario', { escenario: e.codigo, dispositivo: vSimulacion.disp }, `Falla provocada: ${e.etiqueta}`) }, e.etiqueta)),
+        actual ? el('p', { class: 'sim-activa' }, ICO(ICONO_ESCENARIO[actual] || 'alerta-detectada-c', 'ico-btn'), `Falla activa en este equipo: ${etiqueta[actual] || actual}`) : el('p', { class: 'ayuda' }, 'Este equipo funciona con normalidad: elige una falla para provocarla.'),
+        el('div', { class: 'botones-escenario' }, (s.escenarios || []).map((e) => botonEscenario(e, actual === e.codigo, 'boton-secundario', !s.activa,
+          () => ejecutar('escenario', { escenario: e.codigo, dispositivo: vSimulacion.disp }, `Falla provocada: ${e.etiqueta}`))),
           el('button', { type: 'button', class: 'boton', onclick: () => ejecutar('reparar', { dispositivo: vSimulacion.disp }, 'Falla terminada') }, ICO('terminar-falla', 'ico-btn'), 'Terminar la falla'))),
       el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: () => ejecutar(s.activa ? 'pausar' : 'reanudar') }, s.activa ? 'Pausar simulación' : 'Reanudar simulación'),
         el('button', { class: 'boton-secundario', type: 'button', disabled: !s.activa, title: 'Una falla al azar en cada cultivo: genera alertas', onclick: () => ejecutar('anomalia', null, 'Fallas al azar provocadas') }, 'Falla al azar en todos'),

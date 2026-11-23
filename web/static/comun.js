@@ -10,7 +10,7 @@ const TIPO_EVENTO = { dispositivo_sin_comunicacion: 'Sin comunicación', disposi
 const _anexar = Element.prototype.append;
 Element.prototype.append = function (...hijos) { return _anexar.apply(this, hijos.flat(Infinity).filter((h) => h != null && h !== false)); };
 
-class ErrorApi extends Error { constructor(m, codigo, detalles) { super(m); this.codigo = codigo; this.detalles = detalles || []; } }
+class ErrorApi extends Error { constructor(m, codigo, detalles, estado) { super(m); this.codigo = codigo; this.detalles = detalles || []; this.estado = estado || null; } }
 
 /* Transporte
    * Navegador (web o /movil servido por Django): fetch directo a /api con cookie de sesión.
@@ -90,8 +90,8 @@ async function pedir(metodo, ruta, cuerpo) {
     estado = r.status;
     datos = r.status === 204 ? null : await r.json().catch(() => null);
   }
-  if (estado === 401 && ruta !== '/auth/login' && AQ.alSalir && !AQ.enLogin) AQ.alSalir();
-  if (estado < 200 || estado >= 300) { const e = (datos && datos.error) || {}; throw new ErrorApi(e.mensaje || `Error ${estado}`, e.codigo, e.detalles); }
+  if (estado === 401 && ruta !== '/auth/login' && AQ.alSalir && !AQ.enLogin) { AQ.mensajeLogin = 'Error 401: tu sesión venció o no está iniciada. Ingresa de nuevo.'; AQ.alSalir(); }
+  if (estado < 200 || estado >= 300) { const e = (datos && datos.error) || {}; throw new ErrorApi(e.mensaje || `Error ${estado}`, e.codigo, e.detalles, estado); }
   return archivo || datos;
 }
 const api = { get: (r) => pedir('GET', r), post: (r, c) => pedir('POST', r, c === undefined ? {} : c), patch: (r, c) => pedir('PATCH', r, c),
@@ -117,7 +117,7 @@ function mostrarAviso(texto, tipo = '') {
   setTimeout(() => { if (este === _toast && _toast) { _toast.remove(); _toast = null; } }, tipo === 'error' ? 9000 : 5000);
 }
 const qs = (o) => { const p = Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`); return p.length ? `?${p.join('&')}` : ''; };
-const mensajeError = (e) => [e.message, ...(e.detalles || []).map((d) => `${d.campo}: ${d.mensaje}`)].join(' ');
+const mensajeError = (e) => [`${e.estado ? `Error ${e.estado}: ` : ''}${e.message}`, ...(e.detalles || []).map((d) => `${d.campo}: ${d.mensaje}`)].join(' ');
 
 /* Constructor de DOM seguro: todo el texto va como textContent (nunca innerHTML). */
 function el(tag, attrs, ...hijos) {
@@ -259,6 +259,20 @@ function avisosAlerta(a, alTerminar, clase) {
 }
 const enlaceMapa = (u) => `https://www.google.com/maps?q=${u.lat},${u.lng}`;
 const enlaceRuta = (u) => `https://www.google.com/maps/dir/?api=1&destination=${u.lat},${u.lng}`;
+/*  Quién está conectado: nombre y rol, siempre visibles en la barra superior (web y app)  */
+const CLASE_ROL = { administrador: 'rol-admin', supervisor: 'rol-sup', encargado_cultivo: 'rol-enc', tecnico: 'rol-tec' };
+function barraUsuario(clase = 'barra-usuario') {
+  const u = AQ.usuario;
+  return el('div', { class: clase, title: `${u.nombre} · ${ROL[u.rol] || u.rol}` }, el('span', { class: `rol-chip ${CLASE_ROL[u.rol] || ''}` }, ROL[u.rol] || u.rol), el('strong', { class: 'barra-nombre' }, u.nombre));
+}
+/* Pantalla de error con su número (403: sin permiso, 404: no existe…) dentro de la interfaz. */
+const TEXTOS_ERROR = { 401: ['Acceso no autorizado', 'Debes iniciar sesión para ver esto.'], 403: ['Acceso denegado', 'Tu rol no tiene permiso para entrar a esta sección.'],
+  404: ['No encontrado', 'Esta sección no existe o fue movida.'] };
+function pantallaErrorNumero(codigo, alVolver) {
+  const [titulo, texto] = TEXTOS_ERROR[codigo] || ['Ocurrió un error', 'Vuelve al inicio e inténtalo de nuevo.'];
+  return el('section', { class: 'error-interno' }, el('p', { class: 'error-interno-num' }, String(codigo)), el('h2', {}, titulo), el('p', { class: 'suave' }, texto),
+    el('button', { type: 'button', class: 'boton', onclick: alVolver || (() => { location.hash = '#/'; }) }, 'Volver al inicio'), el('p', { class: 'suave' }, `Error ${codigo}`));
+}
 /*  Iconos de la marca (web/static/iconos/*.png) y «Pedir técnico»  */
 const ICO = (nombre, clase = '') => el('img', { class: `ico-img ${clase}`.trim(), src: `/static/iconos/${nombre}.png`, alt: '', draggable: 'false' });
 const PUEDEN_PEDIR_TECNICO = ['encargado_cultivo', 'supervisor', 'administrador'];
@@ -298,6 +312,8 @@ function botonPedirTecnico(ctx = {}, clase = 'boton-secundario boton-tec', etiqu
 
 /*  Orden de trabajo del técnico: por qué lo llamaron, adónde ir, avance de la visita y el informe con el que se cierra  */
 const PASOS_OT = ['Recibida', 'Aceptada', 'En camino', 'En el lugar', 'Informe'];
+const ICONO_PASO = ['pendiente', 'mantencion-aceptada', 'va-en-camino', 'llego-al-equipo', 'mantencion-realizada'];
+const ICONO_TIPO_MANT = { tecnico: 'visita-tecnico', dispositivo: 'cambio-dispositivo', red: 'revision-red', otro: 'otra-mantencion', componente: 'servicio-tecnico', sensor: 'sensores', configuracion: 'configuracion', bateria: 'otra-mantencion' };
 const pasoOT = (m) => (m.estado === 'completada' ? 5 : m.estado === 'pendiente' ? 1 : { aceptada: 2, en_camino: 3, en_sitio: 4 }[m.progreso || 'aceptada']);
 const CONEXION_TXT = { en_linea: 'en línea', sin_comunicacion: 'sin comunicación', sin_datos: 'sin datos' };
 function informeVisita(m) {
@@ -316,12 +332,12 @@ function ordenTrabajo(m, alTerminar) {
     catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); mostrarAviso(mensajeError(e), 'error'); }
   };
   const btn = (txt, f, extra = '', icono = null) => el('button', { type: 'button', class: `ot-btn ${extra}`.trim(), onclick: f }, icono ? ICO(icono, 'ico-btn') : null, txt);
-  const cabecera = el('header', { class: 'ot-cab' }, ICO('visita-tecnico', 'ico-ot'),
+  const cabecera = el('header', { class: 'ot-cab' }, ICO(ICONO_TIPO_MANT[m.tipo] || 'visita-tecnico', 'ico-ot'),
     el('div', { class: 'ot-titulo' }, el('strong', {}, m.tipo_texto), el('span', { class: 'suave' }, m.accion_texto || '')),
     el('div', { class: 'ot-chips' }, el('span', { class: `ot-chip e-${m.estado}` }, m.estado_texto),
       m.en_bolsa ? el('span', { class: 'ot-chip bolsa' }, 'Disponible para cualquier técnico') : m.tecnico_id === yo && abierta ? el('span', { class: 'ot-chip mia' }, 'Asignada a ti') : null));
   const paso = pasoOT(m);
-  const pasos = m.estado === 'cancelada' ? null : el('ol', { class: 'ot-pasos' }, PASOS_OT.map((t, i) => el('li', { class: i + 1 < paso ? 'hecho' : i + 1 === paso ? 'actual' : '' }, el('span', { class: 'ot-punto' }, i + 1 < paso ? '✓' : i + 1), t)));
+  const pasos = m.estado === 'cancelada' ? null : el('ol', { class: 'ot-pasos' }, PASOS_OT.map((t, i) => el('li', { class: i + 1 < paso ? 'hecho' : i + 1 === paso ? 'actual' : '' }, el('span', { class: 'ot-punto' }, ICO(ICONO_PASO[i], 'ico-paso')), t)));
   const porque = el('section', { class: 'ot-bloque' }, el('h5', {}, '¿Por qué te llamaron?'),
     al && al.mensaje ? el('p', { class: 'ot-alerta' }, el('span', { class: `ot-chip sev-${al.severidad || 'advertencia'}` }, al.severidad === 'critica' ? 'Crítica' : 'Advertencia'), ' ', al.mensaje)
       : el('p', { class: 'suave' }, 'Pedido directo, sin alerta: mantención, retiro o reemplazo del equipo.'),
@@ -716,7 +732,9 @@ function pantallaLogin(raiz, titulo, alEntrar) {
   const codigo = el('input', { type: 'text', inputmode: 'numeric', pattern: '\\d{6}', maxlength: 6, placeholder: 'Código de 6 dígitos', autocomplete: 'one-time-code', class: 'oculto' });
   const boton = el('button', { class: 'boton', type: 'submit' }, 'Ingresar');
   const form = el('form', { class: 'login' }, el('div', { class: 'login-logo' }, logo('login-img', true)), el('h1', {}, titulo), el('p', { class: 'sub' }, 'Plataforma de monitoreo y gestión de cultivos aeropónicos'),
-    email, clave, codigo, boton, error, el('p', { class: 'nota' }, 'Plataforma de demostración: todos los datos son simulados.'));
+    email, clave, codigo, boton, error,
+    el('button', { type: 'button', class: 'boton-texto olvide', onclick: () => pantallaOlvide(raiz, titulo, alEntrar) }, '¿Olvidaste tu contraseña?'),
+    el('p', { class: 'nota' }, 'Plataforma de demostración: todos los datos son simulados.'));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault(); boton.disabled = true; vaciar(error);
     try {
@@ -724,14 +742,55 @@ function pantallaLogin(raiz, titulo, alEntrar) {
       AQ.usuario = d.usuario; AQ.csrf = d.csrfToken; AQ.enLogin = false; AQ.reintentoPush = false; vincularEquipo(); iniciarAvisos(); alEntrar();
     } catch (e) {
       if (e.codigo === 'totp_requerido') { codigo.classList.remove('oculto'); codigo.required = true; codigo.focus(); error.append(aviso('ok', e.message)); }
-      else error.append(aviso('error', e.message));
+      else error.append(aviso('error', mensajeError(e)));
     } finally { boton.disabled = false; }
   });
   raiz.append(el('div', { class: 'login-caja' }, form));
   email.focus();
 }
+/* «Olvidé mi contraseña»: 1) se pide el código con el correo; 2) se ingresa el código del correo y la contraseña nueva. Sirve en la web y en la app. */
+function pantallaOlvide(raiz, titulo, alEntrar, codigoInicial = '') {
+  AQ.enLogin = true;
+  vaciar(raiz);
+  const msg = el('div', {}), paso2 = el('div', { class: codigoInicial ? '' : 'oculto' });
+  const email = el('input', { type: 'email', required: true, autocomplete: 'username', placeholder: 'Correo de tu cuenta' });
+  const codigo = el('input', { type: 'text', required: true, autocomplete: 'one-time-code', placeholder: 'Código del correo (AQ-XXXXX-XXXXX)', value: codigoInicial });
+  const nueva = el('input', { type: 'password', required: true, autocomplete: 'new-password', placeholder: 'Contraseña nueva (12+ caracteres)' });
+  const repite = el('input', { type: 'password', required: true, autocomplete: 'new-password', placeholder: 'Repite la contraseña nueva' });
+  const pedirCodigo = el('button', { type: 'button', class: 'boton-secundario' }, 'Enviarme el código');
+  const cambiar = el('button', { type: 'submit', class: 'boton' }, 'Crear contraseña nueva');
+  paso2.append(el('p', { class: 'ayuda' }, 'Escribe el código que te llegó por correo (vale 30 minutos) y elige tu contraseña nueva.'), codigo, nueva, repite, cambiar);
+  const form = el('form', { class: 'login' }, el('div', { class: 'login-logo' }, logo('login-img', true)), el('h1', {}, 'Recuperar contraseña'),
+    el('p', { class: 'sub' }, 'Te enviaremos un código a tu correo para crear una contraseña nueva.'),
+    codigoInicial ? null : email, codigoInicial ? null : pedirCodigo, msg, paso2,
+    el('button', { type: 'button', class: 'boton-texto', onclick: () => pantallaLogin(raiz, titulo, alEntrar) }, 'Volver a iniciar sesión'));
+  pedirCodigo.addEventListener('click', async () => {
+    if (!email.value.trim()) { vaciar(msg).append(aviso('error', 'Escribe el correo de tu cuenta.')); email.focus(); return; }
+    pedirCodigo.disabled = true; vaciar(msg);
+    try {
+      const r = await api.post('/auth/olvide', { email: email.value.trim() });
+      msg.append(aviso('ok', r.mensaje));
+      if (r.codigo_demo) { msg.append(el('p', { class: 'aviso' }, `${r.aviso_demo} Código: ${r.codigo_demo}`)); codigo.value = r.codigo_demo; }
+      paso2.classList.remove('oculto'); codigo.focus();
+    } catch (e) { msg.append(aviso('error', mensajeError(e))); } finally { pedirCodigo.disabled = false; }
+  });
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault(); vaciar(msg);
+    if (nueva.value !== repite.value) { msg.append(aviso('error', 'Las dos contraseñas no coinciden.')); repite.focus(); return; }
+    cambiar.disabled = true;
+    try {
+      await api.post('/auth/restablecer', { codigo: codigo.value.trim(), nueva: nueva.value });
+      AQ.mensajeLogin = null; pantallaLogin(raiz, titulo, alEntrar);
+      raiz.querySelector('.login').prepend(aviso('ok', 'Listo: tu contraseña se cambió. Ingresa con la nueva.'));
+    } catch (e) { msg.append(aviso('error', mensajeError(e))); } finally { cambiar.disabled = false; }
+  });
+  raiz.append(el('div', { class: 'login-caja' }, form));
+  (codigoInicial ? nueva : email).focus();
+}
 async function iniciarSesion(raiz, titulo, alEntrar) {
   AQ.alSalir = () => pantallaLogin(raiz, titulo, alEntrar);
+  const enlace = new URLSearchParams(location.search).get('restablecer');          // enlace del correo: /?restablecer=AQ-XXXXX-XXXXX
+  if (enlace) { history.replaceState(null, '', location.pathname + location.hash); pantallaOlvide(raiz, titulo, alEntrar, enlace); return; }
   try { const d = await api.get('/auth/me'); AQ.usuario = d.usuario; AQ.csrf = d.csrfToken; vincularEquipo(); iniciarAvisos(); alEntrar(); } catch { if (!AQ.enLogin) pantallaLogin(raiz, titulo, alEntrar);  }
 }
 async function cerrarSesion() {

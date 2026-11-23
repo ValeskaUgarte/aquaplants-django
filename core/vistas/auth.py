@@ -1,8 +1,13 @@
-"""Autenticación: login con bloqueo progresivo, logout, cambio de contraseña y segundo factor TOTP."""
+"""Autenticación: login con bloqueo progresivo, logout, cambio de contraseña, recuperación de contraseña y segundo factor TOTP."""
+import hashlib
+import hmac
+import secrets
+
 from django.conf import settings
 from django.http import JsonResponse
 
-from core import repo, seguridad
+from core import correo as correo_saliente, repo, seguridad
+from core.rtdb import rtdb
 from core.http import (Campo, ErrorApi, correo, invalido, ip_cliente, ruta, sin_contenido, texto, validar)
 from core.util import ahora_ms
 
@@ -127,4 +132,60 @@ def dosfa_desactivar(request):
     repo.actualizar("usuarios", u["id"], {"totp_activo": False, "totp_secreto_cif": None})
     seguridad.invalidar_cache_sesiones()
     seguridad.registrar_auditoria(usuario_id=u["id"], accion="2fa_desactivado", ip=ip_cliente(request))
+    return sin_contenido()
+
+
+# ------------------------------------------------------------------ recuperación de contraseña
+ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"      # sin 0/O/1/I: se puede leer y copiar sin errores
+VIGENCIA_RECUPERACION_MS = 30 * 60_000
+ENTRE_SOLICITUDES_MS = 60_000
+
+
+def _huella_codigo(codigo):
+    limpio = "".join(c for c in str(codigo).upper() if c.isalnum())
+    return hmac.new(settings.SECRET_KEY.encode(), limpio.encode(), hashlib.sha256).hexdigest()
+
+
+@ruta(("POST",), sesion=False, limite="login")
+def olvide(request):
+    """«Olvidé mi contraseña»: si el correo es de una cuenta activa se genera un código de un solo uso (vale 30 minutos) y se envía por correo.
+    La respuesta es SIEMPRE la misma, exista o no la cuenta, para que nadie pueda averiguar qué correos están registrados."""
+    d = validar(request.cuerpo, {"email": Campo(correo)})
+    respuesta = {"mensaje": "Si el correo está registrado, te enviamos un código para crear una contraseña nueva. Revisa también la carpeta de spam."}
+    u = repo.usuario_por_email(d["email"])
+    ahora = ahora_ms()
+    if not u or not u.get("activo", True) or u.get("eliminado") or ahora - (u.get("recuperacion_ultima") or 0) < ENTRE_SOLICITUDES_MS:
+        return JsonResponse(respuesta)
+    letras = "".join(secrets.choice(ALFABETO) for _ in range(10))
+    codigo = f"AQ-{letras[:5]}-{letras[5:]}"
+    rtdb().update({f"recuperacion/{_huella_codigo(codigo)}": {"uid": u["id"], "expira": ahora + VIGENCIA_RECUPERACION_MS}})
+    repo.actualizar("usuarios", u["id"], {"recuperacion_ultima": ahora})
+    base = settings.AQ.get("URL_PUBLICA") or request.build_absolute_uri("/").rstrip("/")
+    enlace = f"{base}/?restablecer={codigo}"
+    correo_saliente.enviar(u["email"], "Recupera tu contraseña de AquaPlants",
+                           f"Hola {u['nombre']},\n\nRecibimos una solicitud para crear una contraseña nueva en AquaPlants.\n\n"
+                           f"Tu código es: {codigo}\n(vale 30 minutos y sirve una sola vez)\n\nPuedes ingresarlo en la pantalla «Olvidé mi contraseña» de la web o de la app, "
+                           f"o abrir este enlace:\n{enlace}\n\nSi no fuiste tú, ignora este mensaje: tu contraseña actual sigue igual.\n")
+    seguridad.registrar_auditoria(usuario_id=u["id"], accion="recuperacion_solicitada", entidad="usuario", entidad_id=u["id"], ip=ip_cliente(request))
+    if settings.AQ.get("RECUPERACION_DEMO"):                     # solo demostraciones sin correo (AQ_RECUPERACION_DEMO=1)
+        respuesta.update(codigo_demo=codigo, aviso_demo="Modo demostración: este código normalmente llega solo por correo.")
+    return JsonResponse(respuesta)
+
+
+@ruta(("POST",), sesion=False, limite="login")
+def restablecer(request):
+    """Crea la contraseña nueva con el código recibido. El código se consume, se levantan los bloqueos y se cierran las sesiones abiertas."""
+    d = validar(request.cuerpo, {"codigo": Campo(texto(6, 40)), "nueva": Campo(texto(0, 128))})
+    huella = _huella_codigo(d["codigo"])
+    reg = rtdb().get(f"recuperacion/{huella}")
+    u = repo.get("usuarios", reg["uid"]) if reg else None
+    if not reg or reg.get("expira", 0) < ahora_ms() or not u or not u.get("activo", True) or u.get("eliminado"):
+        raise ErrorApi(400, "codigo_invalido", "El código no es válido o venció. Pide uno nuevo en «Olvidé mi contraseña».")
+    errs = seguridad.validar_politica_password(d["nueva"], u["email"], u["nombre"])
+    if errs:
+        raise invalido("La nueva contraseña no cumple la política.", [{"campo": "nueva", "mensaje": m} for m in errs])
+    repo.actualizar("usuarios", u["id"], {"hash": seguridad.hash_password(d["nueva"]), "intentos_fallidos": 0, "bloqueado_hasta": None})
+    rtdb().update({f"recuperacion/{huella}": None})
+    seguridad.revocar_sesiones_usuario(u["id"])
+    seguridad.registrar_auditoria(usuario_id=u["id"], accion="password_restablecida", entidad="usuario", entidad_id=u["id"], ip=ip_cliente(request))
     return sin_contenido()
