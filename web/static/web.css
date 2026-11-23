@@ -66,7 +66,6 @@ fieldset { border:1px solid var(--borde); border-radius:8px; }
 /* =========================================================
    6. ESTRUCTURA: LATERAL, CONTENIDO, ENCABEZADO, PESTAÑAS
    ========================================================= */
-.principal { min-width:0; display:flex; flex-direction:column; }
 .aplicacion { display:grid; grid-template-columns:240px minmax(0,1fr); min-height:100vh; }
 @media (max-width:860px){ .aplicacion{grid-template-columns:1fr;} }
 
@@ -357,17 +356,3 @@ tr:last-child td { border-bottom:0; }
 .indicadores .ind > div { min-width:0; }
 .ico-kpi { flex:none; }
 .indicadores .ico-kpi { width:3rem; height:2.6rem; }
-
-.login-enlace { background:none; border:0; color:#0b6e4f; font:inherit; text-decoration:underline; cursor:pointer; padding:.3rem; justify-self:center; }
-.topbar-usuario { display:flex; align-items:center; gap:.6rem; }
-
-/* Escenario de falla elegido en la simulación */
-.botones-escenario .marcado { background: var(--acento, #1f7a4d); color: #fff; border-color: transparent; box-shadow: 0 0 0 3px rgba(31,122,77,.3); font-weight: 700; }
-.botones-escenario .marcado::before { content: "✓ "; }
-
-/* Barra superior: nombre y rol de quien ingresó */
-.barra-superior { position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.55rem 1.4rem; background:var(--fondo-tarjeta,#fff); border-bottom:1px solid rgba(0,0,0,.12); }
-.barra-titulo { font-weight:700; letter-spacing:.02em; }
-.barra-usuario { display:flex; align-items:center; gap:.6rem; min-width:0; }
-.barra-usuario strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.chip-rol { padding:.15rem .6rem; border-radius:999px; background:rgba(31,122,77,.14); color:#14603a; font-size:.85rem; white-space:nowrap; }

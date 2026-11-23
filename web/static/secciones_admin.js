@@ -17,7 +17,7 @@ const accion = (m, fn, texto, recargar) => async () => { try { await fn(); m.ok(
 /*  Usuarios  */
 async function secUsuarios(z) {
   const m = marco(z), [usuarios, insts, disp] = await Promise.all([api.get('/usuarios'), api.get('/instalaciones'), api.get('/dispositivos')]);
-  const roles = Object.entries(ROL).filter(([valor]) => valor !== 'cliente').map(([valor, texto]) => ({ valor, texto }));
+  const roles = Object.entries(ROL).map(([valor, texto]) => ({ valor, texto }));
   const campoInst = { nombre: 'instalaciones', etiqueta: 'Instalaciones asignadas (Encargado de cultivo)', tipo: 'multi', opciones: opciones(insts, 'id', 'nombre') };
   const campoDisp = { nombre: 'dispositivos', etiqueta: 'Dispositivos a cargo (recibe sus alertas; también sirve para un hogar o un cultivo pequeño)', tipo: 'multi',
     opciones: disp.map((d) => ({ valor: d.id, texto: `${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo} (${nombreDe(insts, d.instalacion_id)})` })) };
@@ -158,7 +158,6 @@ async function secDispositivos(z) {
         el('div', { class: 'meta suave' }, `${f.ubicacion.origen === 'manual' ? 'a mano' : 'GPS'} · ${hace(f.ubicacion.actualizada_en)}`)] : el('span', { class: 'suave' }, 'sin GPS')) },
       { titulo: 'Conexión', ver: (f) => estado(f.estado_conexion) }, { titulo: 'Última comunicación', ver: (f) => fechaHora(f.ultima_comunicacion) }, { titulo: 'Activo', ver: (f) => (f.activo ? 'Sí' : 'No') },
       { titulo: 'Acciones', ver: (f) => el('span', { class: 'acciones' }, botonTexto(f.activo ? 'Desactivar' : 'Activar', accion(m, () => api.patch(`/dispositivos/${f.id}`, { activo: !f.activo }), 'Dispositivo actualizado.', recargar)),
-        f.propietario ? el('span', { class: 'suave' }, ` Cliente: ${f.propietario}`) : botonTexto('Clave de activación', async () => { if (confirm('Se genera una clave nueva para vender este equipo (reemplaza la anterior). ¿Continuar?')) { try { const r = await api.post(`/dispositivos/${f.id}/clave-activacion`); vaciar(secretoZona).append(el('div', { class: 'aviso aviso-warn', role: 'alert' }, el('strong', {}, `Para el comprador de ${r.codigo} (se muestra una sola vez): `), el('code', { class: 'secreto' }, r.clave), ' ', botonTexto('Ya la guardé', () => vaciar(secretoZona)))); } catch (e) { m.mal(e); } } }),
         botonTexto('Rotar secreto', async () => { if (confirm('El secreto anterior dejará de funcionar. ¿Continuar?')) { try { const r = await api.post(`/dispositivos/${f.id}/rotar-secreto`); mostrarSecreto(r.secreto); } catch (e) { m.mal(e); } } })) }], disp),
     el('h3', { id: 'tabla-sensores' }, `Sensores (${sens.length})`),
     el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar los sensores de'), el('select', { onchange: (e) => { _filtroSensores = e.target.value; recargar(); } }, el('option', { value: '' }, 'Todos los cultivos'),

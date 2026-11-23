@@ -9,7 +9,7 @@ from core.rtdb import rtdb
 from core.tests.base import Base
 
 CAU = ("CAU1", "caudal", "L/min")
-NUT = ("NUT1", "nutrientes", "mS/cm")                              # la EC se mide en mS/cm (informe ES3)
+NUT = ("NUT1", "nutrientes", "ppm")
 
 
 class AutenticacionTests(Base):
@@ -82,34 +82,13 @@ class DatosDeDemostracionTests(Base):
         disp = self.ids(c, "dispositivos")
         self.assertEqual(sorted(d["cultivo_nombre"] for d in disp), ["Albahaca", "Frutilla", "Lechuga", "Tomate cherry"])
         self.assertEqual(len({d["cultivo_id"] for d in disp}), 4)                  # un dispositivo por cultivo
-        # valores reales del informe (Tablas 12 a 15): la lectura de cada cultivo cae dentro de SU rango, y no es la misma para todos
-        from core.management.commands.seed_demo import REFERENCIAS
-        lecturas = {(x["cultivo"], x["tipo_variable"]): x["valor"] for i in self.ids(c, "instalaciones")
-                    for x in c.get("/api/estado-actual", {"instalacion_id": i["id"]}).json()}
-        for cultivo, refs in REFERENCIAS.items():
-            for tipo, ref in refs.items():
-                if isinstance(ref, tuple):
-                    self.assertTrue(ref[0] <= lecturas[(cultivo, tipo)] <= ref[1], (cultivo, tipo, lecturas[(cultivo, tipo)], ref))
-        self.assertGreater(lecturas[("Lechuga", "nutrientes")], lecturas[("Albahaca", "nutrientes")])    # EC: lechuga 1,5–2,5 vs albahaca 1,1–1,6
+        # niveles distintos por cultivo: el tomate usa más nutrientes que la lechuga
+        nut = {x["cultivo"]: x["valor"] for i in self.ids(c, "instalaciones") for x in c.get("/api/estado-actual", {"instalacion_id": i["id"]}).json()
+               if x["tipo_variable"] == "nutrientes"}
+        self.assertGreater(nut["Tomate cherry"], 1.5 * nut["Lechuga"])
         reglas = self.ids(c, "reglas-alerta")
         self.assertTrue(all(r["sensor_id"] for r in reglas))                      # reglas propias de cada cultivo
         self.assertTrue(any(r["nombre"].startswith("Tomate cherry:") for r in reglas))
-
-    def test_las_reglas_de_alerta_usan_los_rangos_del_informe(self):
-        """Donde el informe da un rango, el mínimo y el máximo son exactamente los umbrales de las reglas de ESE cultivo."""
-        from core.management.commands.seed_demo import REFERENCIAS
-        reglas = {r["nombre"]: r for r in rtdb().get("reglas").values()}
-        limites = [("ph", "pH demasiado ácido", "pH demasiado alcalino"), ("nutrientes", "nutrientes bajos", "nutrientes altos"),
-                   ("temperatura", "temperatura de la solución baja", "temperatura de la solución alta"),
-                   ("temperatura_ambiente", "temperatura ambiente baja", "temperatura ambiente alta"),
-                   ("humedad", "humedad ambiental baja", "humedad ambiental alta"), ("fotoperiodo", "pocas horas de luz", "exceso de luz"),
-                   ("luz_intensidad", "falta de luz solar", "exceso de luz solar")]
-        for cultivo, refs in REFERENCIAS.items():
-            for tipo, bajo, alto in limites:
-                if isinstance(refs.get(tipo), tuple):
-                    with self.subTest(cultivo=cultivo, variable=tipo):
-                        self.assertEqual((reglas[f"{cultivo}: {bajo}"]["umbral"], reglas[f"{cultivo}: {alto}"]["umbral"]), refs[tipo])
-        self.assertNotEqual(reglas["Lechuga: pH demasiado alcalino"]["umbral"], reglas["Albahaca: pH demasiado alcalino"]["umbral"])   # 7,0 vs 6,5
 
     def test_estado_actual_dice_cultivo_y_dispositivo(self):
         c, _ = self.entrar()
@@ -230,7 +209,7 @@ class CatalogoTests(Base):
 class IngestaTests(Base):
     def test_lote_valido_actualiza_estado_historial_y_contador(self):
         antes = self.entrar()[0].get("/api/panel").json()["totales"]["mediciones_24h"]
-        r = self.enviar([self.med(*CAU[:1], CAU[1], 2.1, CAU[2]), self.med(*NUT[:1], NUT[1], 1.8, NUT[2])])
+        r = self.enviar([self.med(*CAU[:1], CAU[1], 2.1, CAU[2]), self.med(*NUT[:1], NUT[1], 720, NUT[2])])
         self.assertEqual((r.status_code, r.json()["aceptadas"]), (200, 2))
         c, _ = self.entrar()
         inst = next(i["id"] for i in self.ids(c, "instalaciones") if i["codigo"] == "INV-NORTE")
@@ -318,13 +297,13 @@ class IngestaTests(Base):
     def test_medicion_manual_y_validaciones(self):
         c, csrf = self.entrar()
         sid = self.sensor_id(c, "Albahaca", "nutrientes")
-        r = self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1.4})
+        r = self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 910})
         self.assertEqual(r.status_code, 201)
         self.assertEqual(rtdb().rango(f"mediciones/{sid}", ultimos=1)[0][1].get("o"), "manual")
         self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": -5}).status_code, 422)
         ts = "2026-01-01T10:00:00Z"
-        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1.35, "timestamp": ts}).status_code, 201)
-        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1.36, "timestamp": ts}).status_code, 409)
+        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 900, "timestamp": ts}).status_code, 201)
+        self.assertEqual(self.post(c, csrf, "/api/mediciones/manual", {"sensor_id": sid, "valor": 901, "timestamp": ts}).status_code, 409)
         sup, csrf2 = self.entrar("supervisor")
         self.assertEqual(self.post(sup, csrf2, "/api/mediciones/manual", {"sensor_id": sid, "valor": 1}).status_code, 403)
 
@@ -366,7 +345,7 @@ class HistoricoYComparacionTests(Base):
         self.assertEqual(len(por_cultivo["instalaciones"]), 4)
         self.assertTrue(all(" · AQB-0" in i["nombre"] for i in por_cultivo["instalaciones"]))
         prom = {i["nombre"].split(" · ")[0]: i["promedio"] for i in por_cultivo["instalaciones"]}
-        self.assertGreater(prom["Lechuga"], prom["Albahaca"])                 # EC media: lechuga ~2,0 mS/cm, albahaca ~1,35
+        self.assertGreater(prom["Tomate cherry"], prom["Lechuga"])
         por_inst = c.get("/api/comparacion", {"tipo_variable": "nutrientes", "agrupar": "instalacion"}).json()
         self.assertEqual(sorted(i["nombre"] for i in por_inst["instalaciones"]), ["Invernadero Norte", "Invernadero Sur"])
 

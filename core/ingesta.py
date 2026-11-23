@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
@@ -210,7 +211,8 @@ def procesar_lote(disp, lote, *, origen="api", actualizar_estado=True):
         existentes.add(ident)
         resultado["aceptadas"] += 1
         mapa[f"mediciones/{s['id']}/{ident[1]}"] = {
-            "v": m["valor"], **({"e": "diferido"} if m["estado_conexion"] == "diferido" else {}),
+            "v": m["valor"], "fecha": datetime.fromtimestamp(m["t"] / 1000, ZoneInfo("America/Santiago")).strftime("%d/%m/%Y %H:%M:%S"),
+            **({"e": "diferido"} if m["estado_conexion"] == "diferido" else {}),
             **({"o": origen} if origen != "api" else {})}
         hora = datetime.fromtimestamp(m["t"] / 1000, timezone.utc).strftime("%Y%m%d%H")
         contadores[hora] = contadores.get(hora, 0) + 1

@@ -1,8 +1,6 @@
 /* Utilidades compartidas por la web (monitoreo), la app móvil y la consola /admin. Sin dependencias, sin Node. */
 const AQ = { csrf: null, usuario: null, alSalir: null, editando: false };
-const ROL = { administrador: 'Administrador', supervisor: 'Supervisor', encargado_cultivo: 'Encargado de cultivo', tecnico: 'Técnico / servicio técnico', cliente: 'Cliente particular' };
-const ROLES_A_CARGO = ['encargado_cultivo', 'cliente'];             // atienden las alertas de sus propios cultivos (el cliente es dueño de su instalación)
-const esCliente = () => !!AQ.usuario && AQ.usuario.rol === 'cliente';
+const ROL = { administrador: 'Administrador', supervisor: 'Supervisor', encargado_cultivo: 'Encargado de cultivo', tecnico: 'Técnico / servicio técnico' };
 const ETIQUETA = { en_linea: 'En línea', sin_comunicacion: 'Sin comunicación', sin_datos: 'Sin datos', activa: 'Activa',
     reconocida: 'Reconocida', revisada: 'Revisada · falta confirmar', resuelta: 'Resuelta', conectado: 'Conectado', diferido: 'Diferido' };
 const TIPO_EVENTO = { dispositivo_sin_comunicacion: 'Sin comunicación', dispositivo_reconectado: 'Reconexión',
@@ -203,7 +201,7 @@ function pasosAlerta(a) {
 const trazaAlerta = (a) => [pasosAlerta(a)];
 function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
   const rol = AQ.usuario.rol, caja = el('div', { class: 'acciones-alerta' }), msg = el('div', {});
-  const esEncargado = ['encargado_cultivo', 'cliente', 'supervisor', 'administrador'].includes(rol), esSupervisor = ['supervisor', 'administrador'].includes(rol);
+  const esEncargado = ['encargado_cultivo', 'supervisor', 'administrador'].includes(rol), esSupervisor = ['supervisor', 'administrador'].includes(rol);
   const enviar = async (ruta, cuerpo, ok) => {
     caja.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     try { await api.post(`/alertas/${a.id}/${ruta}`, cuerpo); AQ.editando = false; mostrarAviso(ok, 'ok'); await alTerminar(ok); }
@@ -230,12 +228,12 @@ function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
       if (rol !== 'encargado_cultivo') caja.append(el('div', { class: 'meta suave' }, `Como ${ROL[rol].toLowerCase()} tu revisión es la definitiva: si queda solucionado, la alerta se resuelve de inmediato y queda en la bitácora a tu nombre; si no, sigue abierta.`));
     } else caja.append(el('span', { class: 'meta suave' }, 'En revisión por el encargado.'));
   } else if (a.estado === 'revisada') {                          // ticket de confirmación: lo confirma el encargado; supervisor y administrador, de respaldo
-    const propia = a.revision_por && a.revision_por === AQ.usuario.nombre && !['administrador', 'cliente'].includes(rol);
+    const propia = a.revision_por && a.revision_por === AQ.usuario.nombre && rol !== 'administrador';
     caja.append(el('div', { class: 'ticket' }, el('strong', {}, 'Ticket de confirmación'),
       el('div', {}, `${a.revision_por || 'Alguien'} informó que quedó solucionado${a.revision_nota ? ': «' + a.revision_nota + '»' : ''}.`)));
     if (esEncargado && !propia) {
       const t = nota('Comentario (obligatorio si no quedó bien)');
-      caja.append(el('div', { class: 'meta suave' }, ROLES_A_CARGO.includes(rol) ? 'Revisa que el equipo esté bien y confirma.' : 'Lo confirma el encargado del cultivo; tú puedes hacerlo si hace falta.'), t,
+      caja.append(el('div', { class: 'meta suave' }, rol === 'encargado_cultivo' ? 'Revisa que el equipo esté bien y confirma.' : 'Lo confirma el encargado del cultivo; tú puedes hacerlo si hace falta.'), t,
         el('div', { class: 'botones-revision' },
           el('button', { type: 'button', class: `${clase} boton-ok`, onclick: () => enviar('verificar', { aprobada: true, nota: t.value }, 'Solución confirmada: alerta resuelta') }, '✔ Quedó bien: confirmar'),
           el('button', { type: 'button', class: `${clase} boton-mal`, onclick: () => enviar('verificar', { aprobada: false, nota: t.value }, 'Solución rechazada: vuelve a revisión') }, '✖ No quedó bien')));
@@ -263,7 +261,7 @@ const enlaceMapa = (u) => `https://www.google.com/maps?q=${u.lat},${u.lng}`;
 const enlaceRuta = (u) => `https://www.google.com/maps/dir/?api=1&destination=${u.lat},${u.lng}`;
 /*  Iconos de la marca (web/static/iconos/*.png) y «Pedir técnico»  */
 const ICO = (nombre, clase = '') => el('img', { class: `ico-img ${clase}`.trim(), src: `/static/iconos/${nombre}.png`, alt: '', draggable: 'false' });
-const PUEDEN_PEDIR_TECNICO = ['encargado_cultivo', 'cliente', 'supervisor', 'administrador'];
+const PUEDEN_PEDIR_TECNICO = ['encargado_cultivo', 'supervisor', 'administrador'];
 const puedePedirTecnico = () => !!AQ.usuario && PUEDEN_PEDIR_TECNICO.includes(AQ.usuario.rol);
 /* Ventana para pedir un técnico: con una alerta (`alerta`), para un equipo concreto (`dispositivo_id`) o dejando elegir el equipo.
    La usan el encargado de cultivo, el supervisor y el administrador, tanto en la web como en la app. */
@@ -274,7 +272,7 @@ async function pedirTecnico({ dispositivo_id = null, alerta = null, alTerminar =
   fondo.addEventListener('click', (e) => { if (e.target === fondo) cerrar(); });
   document.body.append(fondo);
   const cabecera = el('div', { class: 'modal-cab' }, ICO('servicio-tecnico', 'ico-modal'), el('div', {}, el('h3', {}, 'Pedir un técnico'),
-    el('p', { class: 'suave' }, esCliente() ? 'Un técnico de AquaPlants recibe tu solicitud con el motivo y la ubicación de tu equipo.' : 'El técnico recibe un aviso con el motivo, dónde está el equipo y cómo llegar.')), el('button', { type: 'button', class: 'modal-x', 'aria-label': 'Cerrar', onclick: cerrar }, '✕'));
+    el('p', { class: 'suave' }, 'El técnico recibe un aviso con el motivo, dónde está el equipo y cómo llegar.')), el('button', { type: 'button', class: 'modal-x', 'aria-label': 'Cerrar', onclick: cerrar }, '✕'));
   vaciar(cuerpo).append(cabecera, el('p', { class: 'suave' }, 'Cargando equipos…'));
   try {
     const zonaForm = el('div', {}), terminar = async (m) => { cerrar(); await alTerminar(m); };
@@ -396,16 +394,6 @@ function cajaMantencion(m, alTerminar, clase = 'boton-secundario') {
     m.nota ? el('div', { class: 'paso-texto sin-sangria' }, m.nota) : null,
     m.estado === 'en_curso' && m.progreso && m.progreso !== 'aceptada' ? el('div', { class: 'meta' }, m.progreso === 'en_camino' ? `El técnico va en camino (${hace(m.en_camino_en)}).` : `El técnico ya llegó al equipo (${hace(m.en_sitio_en)}).`) : null,
     informeVisita(m));
-  if (rol === 'cliente' && m.estado === 'pendiente') {           // el cliente solo puede cancelar su propia solicitud mientras ningún técnico la haya aceptado
-    const msgC = el('div', {}), motivo = el('textarea', { rows: 2, maxlength: 500, placeholder: 'Motivo (por ejemplo: ya se arregló solo)', oninput: (e) => { AQ.editando = e.target.value.length > 0; } });
-    const cancelar = async () => {
-      if (motivo.value.trim().length < 5) { vaciar(msgC).append(aviso('error', 'Cuenta el motivo (al menos 5 letras).')); return; }
-      try { await api.patch(`/mantenciones/${m.id}`, { estado: 'cancelada', nota: motivo.value.trim() }); AQ.editando = false; mostrarAviso('Solicitud cancelada', 'ok'); await alTerminar('Solicitud cancelada'); }
-      catch (e) { vaciar(msgC).append(aviso('error', mensajeError(e))); }
-    };
-    return caja.append(el('div', { class: 'cerrar-mant' }, el('strong', {}, '¿Ya no necesitas la visita?'), motivo,
-      el('div', { class: 'botones-revision' }, el('button', { type: 'button', class: `${clase} boton-mal`, onclick: cancelar }, 'Cancelar mi solicitud')), msgC)), caja;
-  }
   if (!abierta || !(esTec || jefe)) return caja;
   const msg = el('div', {});
   const mover = async (cuerpo, ok) => { try { await api.patch(`/mantenciones/${m.id}`, cuerpo); AQ.editando = false; mostrarAviso(ok, 'ok'); await alTerminar(ok); } catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); } };
@@ -436,8 +424,8 @@ function formularioDerivar(a, alTerminar, clase, destacado, { abierto = false, a
     const tipo = el('select', {}, TIPOS_MANTENCION.map(([v, t]) => el('option', { value: v, selected: v === (a.tipo === 'sin_comunicacion' ? 'tecnico' : 'otro') }, t)));
     const accion = el('select', {}, ACCIONES_MANTENCION.map(([v, t]) => el('option', { value: v }, t)));
     const quien = el('select', {}, el('option', { value: '' }, 'Automático: el técnico de la instalación o cualquiera disponible'));
-    if (!esCliente()) api.get('/tecnicos').then((l) => l.forEach((t) => quien.append(el('option', { value: t.id }, t.nombre)))).catch(() => {});
-    const tec = esCliente() ? el('input', { type: 'hidden', value: '' }) : el('input', { type: 'text', maxlength: 120, placeholder: 'Técnico o empresa en texto (opcional)' });
+    api.get('/tecnicos').then((l) => l.forEach((t) => quien.append(el('option', { value: t.id }, t.nombre)))).catch(() => {});
+    const tec = el('input', { type: 'text', maxlength: 120, placeholder: 'Técnico o empresa en texto (opcional)' });
     const nota = el('textarea', { rows: 2, maxlength: 500, placeholder: '¿Qué pasa y qué se probó? Esto lo lee el técnico.', oninput: (e) => { AQ.editando = e.target.value.length > 0; } });
     const enviar = async () => {
       if (nota.value.trim().length < 5) { mostrarAviso('Cuenta qué pasa (al menos 5 letras).', 'error'); nota.focus(); return; }
@@ -446,7 +434,7 @@ function formularioDerivar(a, alTerminar, clase, destacado, { abierto = false, a
       catch (e) { mostrarAviso(mensajeError(e), 'error'); }
     };
     vaciar(zona).append(el('div', { class: 'derivar-form' }, el('strong', {}, 'Pedir apoyo técnico'), el('label', { class: 'campo' }, el('span', {}, 'Qué falla'), tipo),
-      el('label', { class: 'campo' }, el('span', {}, 'Qué se pide'), accion), esCliente() ? null : el('label', { class: 'campo' }, el('span', {}, 'Para'), quien), tec, nota,
+      el('label', { class: 'campo' }, el('span', {}, 'Qué se pide'), accion), el('label', { class: 'campo' }, el('span', {}, 'Para'), quien), tec, nota,
       el('div', { class: 'botones-revision' }, el('button', { type: 'button', class: `${clase} boton-ok`, onclick: enviar }, 'Enviar solicitud'),
         el('button', { type: 'button', class: clase, onclick: () => { AQ.editando = false; if (alCancelar) alCancelar(); else vaciar(zona).append(boton()); } }, 'Cancelar'))));
     AQ.editando = true; nota.focus();                          // listo para escribir; mientras el formulario está abierto, la pantalla no se refresca sola
@@ -728,9 +716,7 @@ function pantallaLogin(raiz, titulo, alEntrar) {
   const codigo = el('input', { type: 'text', inputmode: 'numeric', pattern: '\\d{6}', maxlength: 6, placeholder: 'Código de 6 dígitos', autocomplete: 'one-time-code', class: 'oculto' });
   const boton = el('button', { class: 'boton', type: 'submit' }, 'Ingresar');
   const form = el('form', { class: 'login' }, el('div', { class: 'login-logo' }, logo('login-img', true)), el('h1', {}, titulo), el('p', { class: 'sub' }, 'Plataforma de monitoreo y gestión de cultivos aeropónicos'),
-    email, clave, codigo, boton, error,
-    el('button', { type: 'button', class: 'login-enlace', onclick: () => pantallaRegistro(raiz, titulo, alEntrar) }, 'Compré un dispositivo: crear mi cuenta'),
-    el('p', { class: 'nota' }, 'Plataforma de demostración: todos los datos son simulados.'));
+    email, clave, codigo, boton, error, el('p', { class: 'nota' }, 'Plataforma de demostración: todos los datos son simulados.'));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault(); boton.disabled = true; vaciar(error);
     try {
@@ -743,57 +729,6 @@ function pantallaLogin(raiz, titulo, alEntrar) {
   });
   raiz.append(el('div', { class: 'login-caja' }, form));
   email.focus();
-}
-/*  Cliente particular: crea su cuenta con el código de su dispositivo y la clave de activación que vino con él  */
-function pantallaRegistro(raiz, titulo, alEntrar) {
-  AQ.enLogin = true;
-  vaciar(raiz);
-  const error = el('div', {});
-  const campo = (etiqueta, atributos) => el('label', { class: 'campo' }, el('span', {}, etiqueta), el('input', { required: true, ...atributos }));
-  const nombre = campo('Tu nombre', { type: 'text', maxlength: 120, autocomplete: 'name', placeholder: 'Nombre y apellido' });
-  const email = campo('Correo', { type: 'email', autocomplete: 'username', placeholder: 'tucorreo@ejemplo.cl' });
-  const clave = campo('Contraseña', { type: 'password', autocomplete: 'new-password', placeholder: '12+ caracteres, mayúscula, número y símbolo' });
-  const codigo = campo('Código del dispositivo', { type: 'text', maxlength: 40, autocapitalize: 'characters', placeholder: 'Ej.: AQB-05' });
-  const act = campo('Clave de activación', { type: 'text', maxlength: 30, autocapitalize: 'characters', autocomplete: 'off', placeholder: 'XXXX-XXXX-XXXX' });
-  const cultivo = campo('¿Qué cultivas? (opcional)', { type: 'text', maxlength: 120, placeholder: 'Ej.: Lechugas del balcón' }); cultivo.querySelector('input').required = false;
-  const direccion = campo('Dónde está tu equipo (opcional)', { type: 'text', maxlength: 200, autocomplete: 'street-address', placeholder: 'Dirección: la usa el técnico si lo pides' }); direccion.querySelector('input').required = false;
-  const v = (c) => c.querySelector('input').value.trim();
-  const boton = el('button', { class: 'boton', type: 'submit' }, 'Crear mi cuenta');
-  const form = el('form', { class: 'login' }, el('div', { class: 'login-logo' }, logo('login-img', true)), el('h1', {}, 'Crear mi cuenta'),
-    el('p', { class: 'sub' }, 'Para quienes compraron un dispositivo AquaPlants. El código y la clave vienen con tu equipo.'),
-    nombre, email, clave, codigo, act, cultivo, direccion, boton, error,
-    el('button', { type: 'button', class: 'login-enlace', onclick: () => pantallaLogin(raiz, titulo, alEntrar) }, 'Ya tengo cuenta: ingresar'));
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault(); boton.disabled = true; vaciar(error);
-    try {
-      const d = await api.post('/auth/registro', { nombre: v(nombre), email: v(email), password: clave.querySelector('input').value, codigo_dispositivo: v(codigo), clave_activacion: v(act),
-        ...(v(cultivo) ? { nombre_cultivo: v(cultivo) } : {}), ...(v(direccion) ? { direccion: v(direccion) } : {}) });
-      AQ.usuario = d.usuario; AQ.csrf = d.csrfToken; AQ.enLogin = false; AQ.reintentoPush = false; vincularEquipo(); iniciarAvisos(); alEntrar();
-    } catch (e) { error.append(aviso('error', e.detalles && e.detalles.length ? `${e.message} ${e.detalles.map((x) => x.mensaje).join(' ')}` : e.message)); }
-    finally { boton.disabled = false; }
-  });
-  raiz.append(el('div', { class: 'login-caja' }, form));
-  nombre.querySelector('input').focus();
-}
-/* Formulario «Nuevo dispositivo» del cliente particular: activa otro equipo en su instalación. */
-function formularioNuevoDispositivo(alTerminar) {
-  const msg = el('div', {});
-  const codigo = el('input', { type: 'text', maxlength: 40, autocapitalize: 'characters', placeholder: 'Ej.: AQB-06' });
-  const clave = el('input', { type: 'text', maxlength: 30, autocapitalize: 'characters', autocomplete: 'off', placeholder: 'XXXX-XXXX-XXXX' });
-  const cultivo = el('input', { type: 'text', maxlength: 120, placeholder: 'Ej.: Albahaca (opcional)' });
-  const boton = el('button', { class: 'boton', type: 'submit' }, ICO('nuevo-dispositivo', 'ico-btn'), 'Activar dispositivo');
-  const form = el('form', { class: 'panel-form tarjeta' }, el('h3', {}, 'Nuevo dispositivo'),
-    el('p', { class: 'ayuda nota' }, 'Escribe el código del equipo y la clave de activación que vino con él. Se suma a tu cuenta con su propio cultivo y empiezas a recibir sus mediciones y alertas.'),
-    el('label', { class: 'campo' }, el('span', {}, 'Código del dispositivo'), codigo), el('label', { class: 'campo' }, el('span', {}, 'Clave de activación'), clave),
-    el('label', { class: 'campo' }, el('span', {}, 'Nombre del cultivo'), cultivo), boton, msg);
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault(); boton.disabled = true; vaciar(msg);
-    try {
-      const r = await api.post('/mis-dispositivos/vincular', { codigo_dispositivo: codigo.value.trim(), clave_activacion: clave.value.trim(), ...(cultivo.value.trim() ? { nombre_cultivo: cultivo.value.trim() } : {}) });
-      mostrarAviso(`Dispositivo ${r.dispositivo} activado`, 'ok'); codigo.value = clave.value = cultivo.value = ''; if (alTerminar) await alTerminar(r);
-    } catch (e) { msg.append(aviso('error', e.message)); } finally { boton.disabled = false; }
-  });
-  return form;
 }
 async function iniciarSesion(raiz, titulo, alEntrar) {
   AQ.alSalir = () => pantallaLogin(raiz, titulo, alEntrar);

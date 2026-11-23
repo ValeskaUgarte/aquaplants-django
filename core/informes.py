@@ -338,8 +338,6 @@ def seguimiento(usuario_visible=None):
     """Estado del flujo de las alertas para el administrador/supervisor: qué sigue pendiente, en qué paso, y las últimas resueltas."""
     nombres = _nombres()
     todas = modulo_alertas.ultimas(500)
-    if usuario_visible is not None:                              # el supervisor no ve las instalaciones de clientes particulares
-        todas = [a for a in todas if a.get("instalacion_id") in usuario_visible]
     ahora = ahora_ms()
     cuenta = {"activa": 0, "reconocida": 0, "revisada": 0}
     pendientes, resueltas = [], []

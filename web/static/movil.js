@@ -6,7 +6,6 @@ const est = { tab: 'hoy', filtro: 'abiertas' };
 let contenido, tabs, cabPunto, datos = null, conocidas = null, temporizador = null, hojaVivos = [];
 const pila = [];                                             // pantallas abiertas encima de la principal
 const esAdmin = () => AQ.usuario.rol === 'administrador';
-const esCliente = () => AQ.usuario.rol === 'cliente';
 const esTecnico = () => AQ.usuario.rol === 'tecnico';
 const esSupervision = () => ['supervisor', 'administrador'].includes(AQ.usuario.rol);
 const LECTURAS_CLAVE = ['nivel_agua', 'nutrientes', 'luz_intensidad', 'ph', 'temperatura', 'caudal', 'co2'];
@@ -22,8 +21,7 @@ function armar() {
       if (!esTecnico() && destinoAviso(n) === 'servicio') { abrirPantalla('Servicio técnico', (c) => vServicioTecnico(c)); return; }
       AQ.abrirOrden = n.mantencion_id || null; if (!esTecnico()) AQ.abrirAlerta = n.alerta_id || null;
       est.tab = esTecnico() ? 'solicitudes' : 'alertas'; est.montada = null; pintarTabs(); pintar();
-    })),
-    el('div', { class: 'cab-usuario' }, el('strong', {}, AQ.usuario.nombre), el('span', { class: 'chip-rol' }, ROL[AQ.usuario.rol]))), contenido, tabs);
+    }))), contenido, tabs);
   est.tab = esTecnico() ? 'solicitudes' : 'hoy'; est.montada = null; pintarTabs(); refrescar();
   clearInterval(temporizador); temporizador = setInterval(refrescar, RELE ? 6000 : 5000);
 }
@@ -251,7 +249,6 @@ function vMas() {
     ['bitacora', 'Bitácora de alertas', 'Quién reconoció, dio solución, no pudo solucionar, confirmó o rechazó cada falla.', hBitacora, esSupervision()],
     ['comparar', 'Comparar cultivos', 'Promedio, mínimo y máximo de una variable en cada cultivo.', hComparacion, esSupervision()],
     ['dispositivos', 'Dispositivos', 'Conexión, última comunicación y calidad de enlace de cada AquaBrain.', hDispositivos, esSupervision()],
-    ['nuevo-dispositivo', 'Nuevo dispositivo', 'Activa otro equipo AquaBrain con su código y la clave de activación que trae.', (c, h) => vaciar(c).append(formularioNuevoDispositivo(async () => { cerrarPantalla(); await refrescar(); })), esCliente()],
     ['servicio-tecnico', 'Servicio técnico', 'Pedidos de arreglo, reemplazo, retiro o mantención y su estado.', (c) => vServicioTecnico(c), true],
     ['ubicacion', 'Ubicación de equipos', 'Dónde está cada dispositivo según su GPS, su recorrido y cómo llegar.', (c) => vUbicacion(c), true],
     ['estadisticas', 'Estadísticas', 'Alertas, tiempos de respuesta, cortes, dispositivos y mantenciones.', (c) => vEstadisticas(c), true],
@@ -325,14 +322,13 @@ async function hSimulacion(cuerpo, h, preseleccion) {
   const s = await api.get('/simulacion');
   if (!s.disponible) { vaciar(cuerpo).append(el('p', { class: 'aviso' }, 'La simulación no está activa en este servidor (AQ_SIMULACION=0 o dispositivos reales).')); return; }
   const disp = seleccion(s.dispositivos.map((d) => [d.codigo, `${d.cultivo} · ${d.codigo}`]), preseleccion || (h.ultimo || s.dispositivos[0].codigo));
-  disp.addEventListener('change', () => { h.ultimo = disp.value; h.recargar(); });
-  const actual = ((s.dispositivos.find((d) => d.codigo === disp.value) || {}).escenario) || '';
+  disp.addEventListener('change', () => { h.ultimo = disp.value; });
   const ejecutar = (cuerpoAccion, ok) => accion(() => api.post('/simulacion/accion', { ...cuerpoAccion, dispositivo: disp.value }), ok, async () => { h.ultimo = disp.value; await h.recargar(); });
   const etiqueta = Object.fromEntries(s.escenarios.map((e) => [e.codigo, e.etiqueta]));
   vaciar(cuerpo).append(
     el('p', { class: 'nota' }, 'Elige el cultivo y la falla. La alerta aparece en segundos (cuando el dispositivo envía su lectura) y la falla sigue hasta que alguien da la solución. «Sin comunicación» aparece después de los minutos configurados en Parámetros.'),
     campo('Cultivo / dispositivo', disp),
-    el('div', { class: 'rejilla-botones' }, s.escenarios.map((e) => el('button', { type: 'button', 'aria-pressed': String(e.codigo === actual), class: `boton sec ${e.codigo === 'sin_comunicacion' ? 'peligro' : ''}${e.codigo === actual ? ' marcado' : ''}`,
+    el('div', { class: 'rejilla-botones' }, s.escenarios.map((e) => el('button', { type: 'button', class: `boton sec ${e.codigo === 'sin_comunicacion' ? 'peligro' : ''}`,
       onclick: () => ejecutar({ accion: 'escenario', escenario: e.codigo }, `Falla provocada: ${e.etiqueta}`) }, e.etiqueta))),
     el('button', { type: 'button', class: 'boton', onclick: () => ejecutar({ accion: 'reparar' }, 'Falla terminada en el dispositivo simulado') }, ICO('terminar-falla', 'ico-btn'), 'Terminar la falla de este dispositivo'),
     el('h2', {}, 'Estado de los dispositivos simulados'),
@@ -357,7 +353,7 @@ async function hUsuarios(cuerpo, h) {
 }
 function formUsuario(cuerpo, h, u, inst, padre) {
   const nombre = el('input', { value: u ? u.nombre : '', autocomplete: 'off' }), email = el('input', { type: 'email', value: u ? u.email : '', disabled: !!u, autocomplete: 'off' });
-  const rol = seleccion(Object.entries(ROL).filter(([v]) => v !== 'cliente' || (u && u.rol === 'cliente')), u ? u.rol : 'encargado_cultivo'), clave = el('input', { type: 'password', autocomplete: 'new-password', placeholder: u ? 'Dejar vacío para no cambiarla' : '12+ caracteres, mayúscula, número y símbolo' });
+  const rol = seleccion(Object.entries(ROL), u ? u.rol : 'encargado_cultivo'), clave = el('input', { type: 'password', autocomplete: 'new-password', placeholder: u ? 'Dejar vacío para no cambiarla' : '12+ caracteres, mayúscula, número y símbolo' });
   const marcadas = new Set(u ? u.instalaciones : []), aCargo = new Set(u ? u.dispositivos : []), disp = padre.disp || [];
   const activo = el('input', { type: 'checkbox', checked: u ? u.activo : true }), motivo = el('input', { value: u && u.suspension ? u.suspension.motivo || '' : '', placeholder: 'Motivo si suspendes la cuenta' });
   const guardar = async () => {

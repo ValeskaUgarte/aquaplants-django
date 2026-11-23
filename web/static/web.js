@@ -1,21 +1,19 @@
 /* Web de MONITOREO (escritorio). Un dispositivo por cultivo: en todas las pantallas se ve QUÉ CULTIVO se lee y DE QUÉ DISPOSITIVO. */
 const raiz = document.getElementById('app');
 let contenido = null, temporizador = null, vistaActiva = 0;
-const puedeReconocer = () => ['encargado_cultivo', 'cliente', 'supervisor', 'administrador'].includes(AQ.usuario.rol);
+const puedeReconocer = () => ['encargado_cultivo', 'supervisor', 'administrador'].includes(AQ.usuario.rol);
 const etiquetaCultivo = (cultivo, disp) => `${cultivo || 'Sin cultivo'} · ${disp}`;
 
 /*  estructura y enrutado */
-const esOperativo = (rol) => rol === 'encargado_cultivo' || rol === 'cliente';
-
 function armar() {
   vaciar(raiz);
   const u = AQ.usuario, rol = u.rol;
   const tec = rol === 'tecnico';
   const enlaces = [['#/', tec ? 'Órdenes de trabajo' : 'Panel', true, tec ? 'servicio-tecnico' : 'tab-hoy'], ['#/alertas', 'Alertas', !tec, 'tab-alertas'],
-    ['#/seguimiento', 'Seguimiento de alertas', !tec && !esOperativo(rol), 'bitacora'],
+    ['#/seguimiento', 'Seguimiento de alertas', !tec && rol !== 'encargado_cultivo', 'bitacora'],
     ['#/servicio', 'Servicio técnico', !tec, 'servicio-tecnico'], ['#/ubicacion', 'Ubicación', true, 'ubicacion'], ['#/estadisticas', tec ? 'Mis estadísticas' : 'Estadísticas', true, 'estadisticas'],
-    ['#/comparacion', 'Comparación', !tec && !esOperativo(rol), 'comparar'], ['#/administracion/informes', 'Informes', rol === 'administrador', 'informes'],
-    ['#/simulacion', 'Simulación', rol === 'administrador', 'simular-fallas'], ['#/administracion', 'Administración', rol === 'administrador', 'parametros'], ['#/api', 'API y conexiones', rol === 'administrador', 'api'], ['#/nuevo-dispositivo', 'Nuevo dispositivo', rol === 'cliente', 'nuevo-dispositivo'], ['#/cuenta', 'Mi cuenta', true, 'tab-cuenta']];
+    ['#/comparacion', 'Comparación', !tec && rol !== 'encargado_cultivo', 'comparar'], ['#/administracion/informes', 'Informes', rol === 'administrador', 'informes'],
+    ['#/simulacion', 'Simulación', rol === 'administrador', 'simular-fallas'], ['#/administracion', 'Administración', rol === 'administrador', 'parametros'], ['#/api', 'API y conexiones', rol === 'administrador', 'api'], ['#/cuenta', 'Mi cuenta', true, 'tab-cuenta']];
   contenido = el('main', { class: 'contenido' });
   raiz.append(el('div', { class: 'aplicacion' },
     el('aside', { class: 'lateral' }, el('div', { class: 'marca-fila' }, el('div', { class: 'marca-logo' }, logo('logo-lateral', true)),
@@ -24,17 +22,10 @@ function armar() {
         rol === 'administrador' ? el('a', { href: '/admin', class: 'externo' }, ICO('consola-django', 'ico-nav'), 'Consola Django ↗') : null),
       el('div', { class: 'usuario' }, el('strong', {}, u.nombre), el('span', {}, ROL[rol]),
         el('button', { type: 'button', class: 'boton-texto', onclick: () => { clearInterval(temporizador); cerrarSesion(); } }, 'Cerrar sesión'))),
-    el('div', { class: 'principal' },
-      el('header', { class: 'barra-superior' }, el('span', { class: 'barra-titulo' }, 'AquaPlants'),
-        el('div', { class: 'barra-usuario', title: u.email || '' }, el('strong', {}, u.nombre), el('span', { class: 'chip-rol' }, ROL[rol]))),
-      contenido)));
+    contenido));
   window.removeEventListener('hashchange', enrutar);
   window.addEventListener('hashchange', enrutar);
   enrutar();
-}
-
-function vNuevoDispositivo(z) {
-  vaciar(z).append(encabezado('Nuevo dispositivo'), formularioNuevoDispositivo(() => { location.hash = '#/'; }));
 }
 
 async function enrutar() {
@@ -47,9 +38,9 @@ async function enrutar() {
   const rol = AQ.usuario.rol;
   const vistas = {
     '': () => (rol === 'tecnico' ? vServicioTecnico(zona) : vPanel()), servicio: () => vServicioTecnico(zona), ubicacion: () => vUbicacion(zona), estadisticas: () => vEstadisticas(zona),
-    instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(a), seguimiento: () => (esOperativo(rol) ? vPanel() : vSeguimiento()),
-    comparacion: () => (esOperativo(rol) ? vPanel() : vComparacion()), simulacion: () => (rol === 'administrador' ? vSimulacion() : vPanel()),
-    administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : vPanel()), cuenta: () => vCuenta(), 'nuevo-dispositivo': () => (rol === 'cliente' ? vNuevoDispositivo(zona) : vPanel()), api: () => (rol === 'administrador' ? vApi(zona) : vPanel()),
+    instalacion: () => vInstalacion(a, b || 'estado'), alertas: () => vAlertasPagina(a), seguimiento: () => (rol === 'encargado_cultivo' ? vPanel() : vSeguimiento()),
+    comparacion: () => (rol === 'encargado_cultivo' ? vPanel() : vComparacion()), simulacion: () => (rol === 'administrador' ? vSimulacion() : vPanel()),
+    administracion: () => (rol === 'administrador' ? vAdministracion(a || 'usuarios') : vPanel()), cuenta: () => vCuenta(), api: () => (rol === 'administrador' ? vApi(zona) : vPanel()),
   };
   const zona = el('div', {});
   vaciar(contenido).append(zona);
@@ -307,7 +298,6 @@ async function vSimulacion() {
     if (!vSimulacion.disp || !s.dispositivos.some((d) => d.codigo === vSimulacion.disp)) vSimulacion.disp = s.dispositivos[0] && s.dispositivos[0].codigo;
     if (document.activeElement && document.activeElement.id === 'sim-disp') return;
     if (!s.disponible) { vaciar(z).append(encabezado('Simulación'), aviso('info', 'La simulación no está activa en este servidor (AQ_SIMULACION=0 o dispositivos reales conectados).')); return; }
-    const actual = ((s.dispositivos.find((d) => d.codigo === vSimulacion.disp) || {}).escenario) || '';
     const opcion = (accion, texto, valor) => el('label', { class: 'campo-check' }, el('input', { type: 'checkbox', checked: valor, onchange: () => ejecutar(accion) }), ' ', texto);
     vaciar(z).append(encabezado('Simulación de dispositivos AquaBrain'),
       el('p', { class: 'ayuda' }, 'Cada cultivo tiene su dispositivo virtual. Envían mediciones firmadas al mismo endpoint que usaría un dispositivo físico; para pasar a hardware real solo se pausa la simulación.'),
@@ -315,7 +305,7 @@ async function vSimulacion() {
         el('p', { class: 'ayuda' }, 'La alerta aparece en segundos y la falla se mantiene hasta que alguien registra «Sí, quedó solucionado» (o se termina aquí). «Sin comunicación» aparece cuando pasan los minutos del parámetro correspondiente.'),
         el('label', { class: 'campo' }, el('span', {}, 'Cultivo / dispositivo'), el('select', { id: 'sim-disp', onchange: (e) => { vSimulacion.disp = e.target.value; } },
           s.dispositivos.map((d) => el('option', { value: d.codigo, selected: d.codigo === vSimulacion.disp }, `${d.cultivo} · ${d.codigo}`)))),
-        el('div', { class: 'botones-escenario' }, (s.escenarios || []).map((e) => el('button', { type: 'button', class: 'boton-secundario' + (actual === e.codigo ? ' marcado' : ''), 'aria-pressed': String(actual === e.codigo), disabled: !s.activa,
+        el('div', { class: 'botones-escenario' }, (s.escenarios || []).map((e) => el('button', { type: 'button', class: 'boton-secundario', disabled: !s.activa,
           onclick: () => ejecutar('escenario', { escenario: e.codigo, dispositivo: vSimulacion.disp }, `Falla provocada: ${e.etiqueta}`) }, e.etiqueta)),
           el('button', { type: 'button', class: 'boton', onclick: () => ejecutar('reparar', { dispositivo: vSimulacion.disp }, 'Falla terminada') }, ICO('terminar-falla', 'ico-btn'), 'Terminar la falla'))),
       el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: () => ejecutar(s.activa ? 'pausar' : 'reanudar') }, s.activa ? 'Pausar simulación' : 'Reanudar simulación'),

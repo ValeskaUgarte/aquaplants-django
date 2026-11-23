@@ -14,7 +14,7 @@ from core.vistas.operacion import _panel
 ADMIN = ("administrador",)
 TODOS = "todos los roles"
 JEFES = "supervisor y administrador"
-SOLICITAN = "encargado, cliente, supervisor y administrador"
+SOLICITAN = "encargado, supervisor y administrador"
 
 # (grupo, [(método, ruta, para qué sirve, quién, ejemplo de consulta o None si no se puede probar desde aquí)])
 CATALOGO = [
@@ -39,11 +39,6 @@ CATALOGO = [
         ("GET", "/api/tecnicos", "Técnicos disponibles.", SOLICITAN, ""),
         ("GET", "/api/ubicaciones", "Dónde está cada dispositivo según su GPS.", TODOS, ""),
         ("GET", "/api/dispositivos/{id}/trayecto", "Recorrido de un dispositivo.", TODOS, None),
-    ]),
-    ("Cliente particular (compró un equipo)", [
-        ("POST", "/api/auth/registro", "Crear la cuenta con el código del equipo y su clave de activación; inicia la sesión.", "público", None),
-        ("POST", "/api/mis-dispositivos/vincular", "Activar otro equipo en la instalación propia (código + clave).", "cliente", None),
-        ("POST", "/api/dispositivos/{id}/clave-activacion", "Generar la clave de activación de un equipo en venta (se muestra una sola vez).", "administrador", None),
     ]),
     ("Sesión y cuenta", [
         ("POST", "/api/auth/login", "Iniciar sesión (devuelve el token CSRF).", "público", None),

@@ -26,66 +26,32 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Valores genéricos: solo se usan si un sensor llega SIN "base" (lo normal es que la base y el rango de cada cultivo vengan
-# de seed_demo.REFERENCIAS, que a su vez sale de las Tablas 12 a 15 del informe de la ES3).
-# Unidades: EC en mS/cm, luz en µmol/m²/s (PPFD), N-P-K en mg/L, consumo en mL/planta/día.
-BASE = {"caudal": 2.5, "consumo_hidrico": 200, "nutrientes": 1.8, "fotoperiodo": 16, "parametro_cultivo": 6,
-        "nivel_agua": 80, "luz_intensidad": 200, "nitrogeno": 200, "fosforo": 60, "potasio": 280, "ph": 6.0, "co2": 750, "amoniaco": 2.0,
+BASE = {"caudal": 2.5, "consumo_hidrico": 0.4, "nutrientes": 800, "fotoperiodo": 16, "parametro_cultivo": 6,
+        "nivel_agua": 80, "luz_intensidad": 24, "nitrogeno": 170, "fosforo": 55, "potasio": 240, "ph": 6.0, "co2": 750, "amoniaco": 2.0,
         "temperatura": 21.0, "humedad": 65, "temperatura_ambiente": 20.0}
-
-
-def valor_normal(base, rango, fase, ruido):
-    """Valor NORMAL de un sensor en un instante.
-    - Si el informe da un RANGO para el cultivo (rango = (mín, máx)): oscila alrededor del centro y nunca pasa del 55 % del
-      semiancho, así que un cultivo sano jamás sale de su rango por sí solo (no hay alertas falsas).
-    - Si solo hay un valor (o ninguno): oscila ±8 % alrededor de `base`, como antes.
-    `fase` va de -1 a 1 (una senoidal) y `ruido` de -0.5 a 0.5. seed_demo usa esta misma función para el histórico de 24 h.
-    """
-    if rango:
-        centro, mitad = (rango[0] + rango[1]) / 2, (rango[1] - rango[0]) / 2
-        return centro + mitad * (0.45 * fase + 0.2 * ruido)
-    return base * (1 + 0.08 * fase + 0.04 * ruido)
-
-
-def _fuera(b, r, lado, margen, sin_rango):
-    """Valor justo FUERA del rango del cultivo: lado=-1 por debajo del mínimo, lado=+1 por encima del máximo, a `margen` × el ancho
-    del rango. Si el cultivo no tiene rango en el informe se usa `sin_rango(b)` (el comportamiento anterior)."""
-    if not r:
-        return sin_rango(b)
-    ancho = r[1] - r[0]
-    return r[0] - margen * ancho if lado < 0 else r[1] + margen * ancho
-
-
-def _dentro(b, r, lado, sin_rango):
-    """Valor que se acerca al límite pero SIGUE dentro del rango (20 % del ancho desde el borde). Se usa en los sensores que
-    acompañan a una falla sin ser la falla, para que cada escenario dispare UNA sola alerta."""
-    if not r:
-        return sin_rango(b)
-    ancho = r[1] - r[0]
-    return r[0] + 0.2 * ancho if lado < 0 else r[1] - 0.2 * ancho
 
 # Fallas demostrables del cultivo: cada escenario cambia los sensores afectados (valor = f(nivel normal del cultivo)).
 # Cada una dispara UNA alerta clara (los sensores relacionados se mueven, pero sin salir de su rango).
 # Duran hasta que alguien da la solución (o hasta que se cumple su tiempo), como pasaría con una falla real.
 ESCENARIOS = {
-    "agua_emergencia":   {"etiqueta": "Emergencia de agua (estanque casi vacío, ≤5 %)", "cambios": {"nivel_agua": lambda b, r=None: 4, "caudal": lambda b, r=None: b * 0.75}},
-    "falta_agua":        {"etiqueta": "Falta de agua (estanque bajo)", "cambios": {"nivel_agua": lambda b, r=None: 18, "caudal": lambda b, r=None: b * 0.75}},
-    "exceso_agua":       {"etiqueta": "Exceso de agua (desborde)", "cambios": {"nivel_agua": lambda b, r=None: 99, "consumo_hidrico": lambda b, r=None: b * 2.4}},
-    "falla_bomba":       {"etiqueta": "Falla de bomba (caudal bajo)", "cambios": {"caudal": lambda b, r=None: b * 0.3}},
-    "falta_nutrientes":  {"etiqueta": "Falta de nutrientes", "cambios": {"nutrientes": lambda b, r=None: _fuera(b, r, -1, 0.25, lambda x: x * 0.55), "nitrogeno": lambda b, r=None: b * 0.8,
-                                                                          "fosforo": lambda b, r=None: b * 0.8, "potasio": lambda b, r=None: b * 0.8}},
-    "falta_nitrogeno":   {"etiqueta": "Falta de nitrógeno (N)", "cambios": {"nitrogeno": lambda b, r=None: b * 0.45}},
-    "exceso_nutrientes": {"etiqueta": "Exceso de nutrientes", "cambios": {"nutrientes": lambda b, r=None: _fuera(b, r, +1, 0.25, lambda x: x * 1.5)}},
-    "falta_luz":         {"etiqueta": "Falta de luz solar", "cambios": {"luz_intensidad": lambda b, r=None: _fuera(b, r, -1, 0.3, lambda x: x * 0.35), "fotoperiodo": lambda b, r=None: _dentro(b, r, -1, lambda x: x - 2)}},
-    "exceso_luz":        {"etiqueta": "Exceso de luz solar", "cambios": {"luz_intensidad": lambda b, r=None: _fuera(b, r, +1, 0.3, lambda x: x * 1.8), "fotoperiodo": lambda b, r=None: _dentro(b, r, +1, lambda x: x + 2)}},
-    "gas_amoniaco":      {"etiqueta": "Gas dañino: amoníaco (NH₃)", "cambios": {"amoniaco": lambda b, r=None: b * 8}},
-    "gas_co2":           {"etiqueta": "Gas dañino: CO₂ alto", "cambios": {"co2": lambda b, r=None: b * 2.2}},
-    "ph_acido":          {"etiqueta": "pH demasiado ácido", "cambios": {"ph": lambda b, r=None: _fuera(b, r, -1, 0.3, lambda x: x - 1.6)}},
-    "ph_alcalino":       {"etiqueta": "pH demasiado alcalino", "cambios": {"ph": lambda b, r=None: _fuera(b, r, +1, 0.3, lambda x: x + 1.6)}},
-    "calor":             {"etiqueta": "Temperatura de la solución alta", "cambios": {"temperatura": lambda b, r=None: _fuera(b, r, +1, 0.3, lambda x: 31)}},
-    "humedad_alta":      {"etiqueta": "Humedad ambiental alta (riesgo de hongos)", "cambios": {"humedad": lambda b, r=None: _fuera(b, r, +1, 0.3, lambda x: 92)}},
-    "humedad_baja":      {"etiqueta": "Humedad ambiental baja (ambiente seco)", "cambios": {"humedad": lambda b, r=None: _fuera(b, r, -1, 0.3, lambda x: 30)}},
-    "helada":            {"etiqueta": "Riesgo de helada (temperatura ambiente baja)", "cambios": {"temperatura_ambiente": lambda b, r=None: 2}},
+    "agua_emergencia":   {"etiqueta": "Emergencia de agua (estanque casi vacío, ≤5 %)", "cambios": {"nivel_agua": lambda b: 4, "caudal": lambda b: b * 0.75}},
+    "falta_agua":        {"etiqueta": "Falta de agua (estanque bajo)", "cambios": {"nivel_agua": lambda b: 18, "caudal": lambda b: b * 0.75}},
+    "exceso_agua":       {"etiqueta": "Exceso de agua (desborde)", "cambios": {"nivel_agua": lambda b: 99, "consumo_hidrico": lambda b: b * 2.4}},
+    "falla_bomba":       {"etiqueta": "Falla de bomba (caudal bajo)", "cambios": {"caudal": lambda b: b * 0.3}},
+    "falta_nutrientes":  {"etiqueta": "Falta de nutrientes", "cambios": {"nutrientes": lambda b: b * 0.55, "nitrogeno": lambda b: b * 0.8,
+                                                                          "fosforo": lambda b: b * 0.8, "potasio": lambda b: b * 0.8}},
+    "falta_nitrogeno":   {"etiqueta": "Falta de nitrógeno (N)", "cambios": {"nitrogeno": lambda b: b * 0.45}},
+    "exceso_nutrientes": {"etiqueta": "Exceso de nutrientes", "cambios": {"nutrientes": lambda b: b * 1.5}},
+    "falta_luz":         {"etiqueta": "Falta de luz solar", "cambios": {"luz_intensidad": lambda b: b * 0.35, "fotoperiodo": lambda b: b - 2}},
+    "exceso_luz":        {"etiqueta": "Exceso de luz solar", "cambios": {"luz_intensidad": lambda b: b * 1.8, "fotoperiodo": lambda b: b + 2}},
+    "gas_amoniaco":      {"etiqueta": "Gas dañino: amoníaco (NH₃)", "cambios": {"amoniaco": lambda b: b * 8}},
+    "gas_co2":           {"etiqueta": "Gas dañino: CO₂ alto", "cambios": {"co2": lambda b: b * 2.2}},
+    "ph_acido":          {"etiqueta": "pH demasiado ácido", "cambios": {"ph": lambda b: b - 1.6}},
+    "ph_alcalino":       {"etiqueta": "pH demasiado alcalino", "cambios": {"ph": lambda b: b + 1.6}},
+    "calor":             {"etiqueta": "Temperatura de la solución alta", "cambios": {"temperatura": lambda b: 31}},
+    "humedad_alta":      {"etiqueta": "Humedad ambiental alta (riesgo de hongos)", "cambios": {"humedad": lambda b: 92}},
+    "humedad_baja":      {"etiqueta": "Humedad ambiental baja (ambiente seco)", "cambios": {"humedad": lambda b: 30}},
+    "helada":            {"etiqueta": "Riesgo de helada (temperatura ambiente baja)", "cambios": {"temperatura_ambiente": lambda b: 2}},
     "sin_comunicacion":  {"etiqueta": "Dispositivo sin comunicación (corte prolongado)", "cambios": {}},
 }
 MAX_COLA = 2000 # memoria limitada del dispositivo: ante un corte muy largo se conservan las mediciones más recientes
@@ -184,16 +150,14 @@ class DispositivoSimulado:
             return "sin_comunicacion"
         return self.escenario
 
-    """Valor simulado alrededor del nivel propio del cultivo (`base` del sensor; si falta, el genérico del tipo). Si el sensor trae
-    `rango` (el del informe para ese cultivo) el valor normal oscila DENTRO de ese rango."""
+    """Valor simulado alrededor del nivel propio del cultivo (`base` del sensor; si falta, el genérico del tipo)."""
     def valor(self, sensor):
         tipo = sensor["tipo_variable"]
         b = sensor.get("base", BASE.get(tipo, 1))
-        r = sensor.get("rango")                     # [mín, máx] del cultivo, o None si el informe no da rango
-        v = valor_normal(b, r, math.sin(self.t / 12), random.random() - 0.5)
+        v = b * (1 + math.sin(self.t / 12) * 0.08 + (random.random() - 0.5) * 0.04)
         esc = ESCENARIOS.get(self.escenario_activo() or "", {}).get("cambios", {})
         if tipo in esc:
-            v = esc[tipo](b, r) * (1 + (random.random() - 0.5) * 0.02)
+            v = esc[tipo](b) * (1 + (random.random() - 0.5) * 0.02)
         if tipo == "nivel_agua":
             v = min(v, 100.0)
         return round(v, 3)

@@ -72,7 +72,7 @@ input.corto { width:7rem; padding:.5rem .6rem; }
 /* =========================================================
    6. ESTRUCTURA: CABECERA, CONTENIDO, PESTAÑAS, HOJA, TOAST
    ========================================================= */
-.cabecera { flex-wrap:wrap; background:var(--marca2); color:#fff; padding:calc(.7rem + env(safe-area-inset-top)) 1rem .7rem; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:5; }
+.cabecera { background:var(--marca2); color:#fff; padding:calc(.7rem + env(safe-area-inset-top)) 1rem .7rem; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:5; }
 .cabecera h1 { font-size:1.1rem; }
 .cab-der { display:flex; align-items:center; gap:.7rem; }
 .punto { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; background:#7dffb0; margin-right:.4rem; }
@@ -295,12 +295,3 @@ input.corto { width:7rem; padding:.5rem .6rem; }
 .pedir-rapido { display:flex; align-items:center; gap:.7rem; width:100%; margin:.2rem 0 .8rem; padding:.7rem .9rem; border:1px solid #b7dfe3; background:#e8f6f7; border-radius:14px; font:inherit; text-align:left; color:var(--texto); }
 .pedir-rapido strong { display:block; } .pedir-rapido .nota { font-size:.82rem; }
 .cultivo-t .btn-pedir-tec { margin-top:.5rem; width:100%; font-size:.9rem; padding:.55rem .8rem; }
-
-.login-enlace { background:none; border:0; color:#0b6e4f; font:inherit; text-decoration:underline; cursor:pointer; padding:.3rem; justify-self:center; }
-
-.cab-usuario { flex-basis:100%; display:flex; align-items:center; gap:.5rem; font-size:.85rem; min-width:0; }
-.cab-usuario strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.chip-rol { padding:.1rem .55rem; border-radius:999px; background:rgba(255,255,255,.22); font-size:.78rem; white-space:nowrap; }
-.hoja .cab-usuario { display:none; }
-.rejilla-botones .marcado { outline:3px solid var(--marca); font-weight:700; background:var(--marca); color:#fff; }
-.rejilla-botones .marcado::before { content:"✓ "; }

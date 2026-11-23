@@ -39,7 +39,7 @@ class AlertasYAvisosTests(MejorasBase):
         self.assertEqual(self.avisos(adm)["no_leidas"], 2)
         self.assertEqual(self.avisos(sup)["no_leidas"], 2)
         # una segunda alerta distinta (otro sensor) también se crea: ya no «solo fue 1»
-        self.enviar([self.med("NUT1", "nutrientes", 0.5, "mS/cm")], cultivo="Lechuga")
+        self.enviar([self.med("NUT1", "nutrientes", 100, "ppm")], cultivo="Lechuga")
         self.assertEqual(len(adm.get("/api/alertas", {"estado": "abiertas"}).json()), 3)
 
     def test_alerta_bloqueada_por_clave_huerfana_se_limpia(self):

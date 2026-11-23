@@ -4,7 +4,7 @@ from urllib.parse import quote
 from django.http import HttpResponse, JsonResponse
 
 from core import informes, repo, seguridad
-from core.http import instalaciones_visibles, ip_cliente, ruta
+from core.http import ip_cliente, ruta
 
 TIPO_MIME = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "csv": "text/csv; charset=utf-8"}
 
@@ -37,4 +37,4 @@ def trabajadores(request):
 
 @ruta(("GET",), roles=("administrador", "supervisor"))
 def seguimiento(request):
-    return JsonResponse(informes.seguimiento(instalaciones_visibles(request.usuario)))
+    return JsonResponse(informes.seguimiento())
