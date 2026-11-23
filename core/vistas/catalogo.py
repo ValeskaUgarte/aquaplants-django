@@ -9,7 +9,7 @@ from core.rtdb import rtdb
 from core.util import ahora_ms, iso
 
 ADMIN = ("administrador",)
-ROLES = opcion("administrador", "supervisor", "encargado_cultivo", "tecnico")
+ROLES = opcion("administrador", "supervisor", "encargado_cultivo", "tecnico", "cliente")
 _VARIABLE = r"[a-z0-9_]{2,40}"
 _OPERADORES = opcion(">", ">=", "<", "<=")
 _SEVERIDAD = opcion("advertencia", "emergencia")
@@ -324,6 +324,8 @@ def dispositivos(request):
             "codigo": x["codigo"], "nombre": x["nombre"], "activo": x.get("activo", True),
             "estado_conexion": x.get("estado_conexion", "sin_datos"), "ultima_comunicacion": iso(x.get("ultima_comunicacion")),
             "calidad_enlace": x.get("calidad_enlace"), "ubicacion": _ubic(x.get("ubicacion")),
+            "en_venta": bool(x.get("clave_activacion_hash")) and not x.get("propietario_id"),
+            "propietario": repo.col("usuarios").get(x.get("propietario_id"), {}).get("nombre") if x.get("propietario_id") else None,
             "responsables": [{"id": u["id"], "nombre": u["nombre"]} for u in repo.lista("usuarios")
                              if x["id"] in (u.get("dispositivos") or {}) and u.get("activo", True) and not u.get("eliminado")]}
             for x in sorted(repo.lista("dispositivos"), key=lambda x: x["codigo"])
@@ -344,6 +346,22 @@ def dispositivos(request):
                                          "estado_conexion": "sin_datos", "creado_en": ahora_ms()})
     _audit(request, "dispositivo_creado", "dispositivo", nuevo)
     return JsonResponse({"id": nuevo, "secreto": secreto, "aviso": _aviso_secreto()}, status=201)
+
+
+@ruta(("POST",), roles=ADMIN)
+def dispositivo_clave_activacion(request, pk):
+    """Genera la clave de activación de un equipo para venderlo: el comprador la usa (con el código del equipo) al crear su cuenta.
+    La clave se muestra una sola vez; se guarda solo su huella. Un equipo ya entregado a un cliente no puede volver a activarse."""
+    from core.vistas.clientes import generar_clave_activacion, hash_clave
+    d = repo.get("dispositivos", pk)
+    if d is None:
+        raise no_encontrado()
+    if d.get("propietario_id"):
+        raise conflicto("Este equipo ya fue activado por un cliente.")
+    clave = generar_clave_activacion()
+    repo.actualizar("dispositivos", pk, {"clave_activacion_hash": hash_clave(clave)})
+    _audit(request, "dispositivo_clave_activacion", "dispositivo", pk)
+    return JsonResponse({"codigo": d["codigo"], "clave": clave, "aviso": "Entrégale al comprador el código del equipo y esta clave. No se volverá a mostrar."})
 
 
 @ruta(("POST",), roles=ADMIN)

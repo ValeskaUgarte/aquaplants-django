@@ -20,17 +20,21 @@ from core.util import ahora_ms, clave_ms
 
 log = logging.getLogger("aquaplants.notificaciones")
 MAX_POR_USUARIO = 60
+ROLES_A_CARGO = ("encargado_cultivo", "cliente")          # quienes están a cargo de los cultivos y reciben las alertas de sus equipos
 
 
 def _destinatarios(instalacion_id, *, encargados, supervisores, administradores, excluir=None, dispositivo_id=None):
     """Si el dispositivo tiene responsables asignados, los encargados que reciben el aviso son ellos; si no, los de la instalación."""
     usuarios = [u for u in repo.lista("usuarios") if u.get("activo", True) and not u.get("eliminado") and u["id"] != excluir]
-    asignados = {u["id"] for u in usuarios if u.get("rol") == "encargado_cultivo" and dispositivo_id and dispositivo_id in (u.get("dispositivos") or {})}
+    # El cliente particular hace de «encargado» de su propia instalación. Si la instalación es de un cliente, no es de la empresa:
+    # el supervisor y el administrador no reciben sus avisos (el administrador igual puede consultarla en la web).
+    propia = bool(repo.col("instalaciones").get(instalacion_id, {}).get("propietario_id"))
+    asignados = {u["id"] for u in usuarios if u.get("rol") in ROLES_A_CARGO and dispositivo_id and dispositivo_id in (u.get("dispositivos") or {})}
     salida = []
     for u in usuarios:
         rol = u.get("rol")
-        if (rol == "encargado_cultivo" and encargados and ((u["id"] in asignados) if asignados else instalacion_id in (u.get("instalaciones") or {}))) \
-                or (rol == "supervisor" and supervisores) or (rol == "administrador" and administradores):
+        if (rol in ROLES_A_CARGO and encargados and ((u["id"] in asignados) if asignados else instalacion_id in (u.get("instalaciones") or {}))) \
+                or (rol == "supervisor" and supervisores and not propia) or (rol == "administrador" and administradores and not propia):
             salida.append(u["id"])
     return salida
 
@@ -91,7 +95,7 @@ def por_alerta_nueva(aid, datos, mapa):
 
 
 def _quien(usuario):
-    rol = {"encargado_cultivo": "encargado de cultivo", "supervisor": "supervisor", "administrador": "administrador"}.get(usuario.get("rol"), "")
+    rol = {"encargado_cultivo": "encargado de cultivo", "supervisor": "supervisor", "administrador": "administrador", "cliente": "cliente"}.get(usuario.get("rol"), "")
     return f"{usuario.get('nombre', 'Alguien')} ({rol})" if rol else usuario.get("nombre", "Alguien")
 
 

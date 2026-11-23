@@ -2,7 +2,7 @@ from django.conf import settings
 from django.urls import path, re_path
 from django.views.static import serve
 
-from core.vistas import auth, catalogo, estadisticas, informes, ingesta, documentacion, mantencion, notificaciones, operacion, simulacion, ubicacion, vinculacion, web
+from core.vistas import auth, catalogo, clientes, estadisticas, informes, ingesta, documentacion, mantencion, notificaciones, operacion, simulacion, ubicacion, vinculacion, web
 from core.http import (Campo, ErrorApi, booleano, conflicto, exigir_acceso_instalacion, fecha_iso, instalaciones_visibles,
                        invalido, ip_cliente, no_encontrado, numero, id_valor, ruta, sin_contenido, texto, validar)
 
@@ -14,6 +14,7 @@ urlpatterns = [
     path("api/auth/login", auth.login),
     path("api/auth/me", auth.me),
     path("api/auth/logout", auth.logout),
+    path("api/auth/registro", clientes.registro),                 # cliente particular: crea su cuenta con el código y la clave de su equipo
     path("api/auth/password", auth.cambiar_password),
     path("api/auth/2fa/iniciar", auth.dosfa_iniciar),
     path("api/auth/2fa/activar", auth.dosfa_activar),
@@ -33,6 +34,8 @@ urlpatterns = [
     path("api/dispositivos", catalogo.dispositivos),
     path("api/dispositivos/<str:pk>", catalogo.dispositivo_detalle),
     path("api/dispositivos/<str:pk>/rotar-secreto", catalogo.dispositivo_rotar_secreto),
+    path("api/dispositivos/<str:pk>/clave-activacion", catalogo.dispositivo_clave_activacion),
+    path("api/mis-dispositivos/vincular", clientes.vincular),
     path("api/sensores", catalogo.sensores),
     path("api/sensores/<str:pk>", catalogo.sensor_detalle),
     path("api/reglas-alerta", catalogo.reglas),

@@ -173,9 +173,14 @@ def validar(datos, esquema, parcial=False):
 
 # ------------------------------------------------------------------ alcance por instalación
 def instalaciones_visibles(usuario):
-    """None = todas (administrador y supervisor); conjunto de ids para el encargado de cultivo."""
-    if usuario["rol"] in ("administrador", "supervisor"):
+    """None = todas (administrador); conjunto de ids para los demás.
+    El supervisor ve todas las instalaciones de la empresa, pero NO las de clientes particulares (tienen `propietario_id`):
+    esas solo las ve su dueño y el administrador. El encargado y el cliente ven solo las que tienen asignadas."""
+    rol = usuario["rol"]
+    if rol == "administrador":
         return None
+    if rol == "supervisor":
+        return {i for i, d in repo.col("instalaciones").items() if not d.get("propietario_id")}
     return set((usuario.get("instalaciones") or {}).keys())
 
 

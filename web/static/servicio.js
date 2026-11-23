@@ -207,7 +207,7 @@ async function vOrdenesTecnico(zona) {
 
 async function vServicioTecnico(zona) {
   if (AQ.usuario.rol === 'tecnico') return vOrdenesTecnico(zona);
-  const rol = AQ.usuario.rol, esTec = rol === 'tecnico', puedePedir = ['encargado_cultivo', 'supervisor', 'administrador'].includes(rol);
+  const rol = AQ.usuario.rol, esTec = rol === 'tecnico', puedePedir = ['encargado_cultivo', 'cliente', 'supervisor', 'administrador'].includes(rol);
   const filtro = zona.dataset.filtro || 'abiertas', lista = el('div', { class: 'lista-mantenciones' });
   const sel = el('select', { onchange: (e) => { zona.dataset.filtro = e.target.value; cargar(true); } }, [['abiertas', 'Abiertas (pendientes y en curso)'], ['', 'Todas'], ['completada', 'Realizadas'], ['cancelada', 'Canceladas']]
     .map(([v, t]) => el('option', { value: v, selected: v === filtro }, t)));

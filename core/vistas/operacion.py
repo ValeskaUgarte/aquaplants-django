@@ -19,6 +19,9 @@ from core.vistas.mantencion import mantencion_publica
 from core.rtdb import rtdb
 from core.util import ahora_ms, clave_ms, iso, iso_a_ms
 
+A_CARGO = ("encargado_cultivo", "cliente", "supervisor", "administrador")          # quienes atienden las alertas
+SIN_SUPERIOR = ("supervisor", "administrador", "cliente")                       # nadie por encima que apruebe: su revisión es la definitiva
+NOMBRE_ROL = {"administrador": "administrador", "supervisor": "supervisor", "cliente": "cliente"}
 BUCKETS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 MAX_PUNTOS = 400
 _fresco = cache_micro.fresco
@@ -237,7 +240,7 @@ def _reparar_simulacion(alerta):
         pass
 
 
-@ruta(("POST",), roles=("encargado_cultivo", "supervisor", "administrador"))
+@ruta(("POST",), roles=A_CARGO)
 def reconocer_alerta(request, pk):
     a = rtdb().get(f"alertas/{pk}")
     if a is None:
@@ -258,7 +261,7 @@ def reconocer_alerta(request, pk):
     return sin_contenido()
 
 
-@ruta(("POST",), roles=("encargado_cultivo", "supervisor", "administrador"))
+@ruta(("POST",), roles=A_CARGO)
 def revisar_alerta(request, pk):
     """Quien fue a revisar informa qué encontró: «solucionado» o «no solucionado». Ambas respuestas se registran.
     - Encargado: si quedó solucionado, la alerta pasa a «revisada» y espera la confirmación del supervisor o del administrador.
@@ -280,11 +283,11 @@ def revisar_alerta(request, pk):
     ahora = ahora_ms()
     cambios = {"revision_por": request.usuario["id"], "revision_en": ahora, "revision_nota": d["nota"], "revision_solucionado": d["solucionado"]}
     presente, detalle = causa_presente(a) if d["solucionado"] else (False, "")
-    directa = d["solucionado"] and not presente and request.usuario["rol"] in ("supervisor", "administrador")
+    directa = d["solucionado"] and not presente and request.usuario["rol"] in SIN_SUPERIOR
     if directa:                                              # supervisor o administrador: nadie más debe confirmarlo
         cambios.update(estado="resuelta", resuelta_en=ahora, verificacion_por=request.usuario["id"], verificacion_en=ahora,
                        verificacion_aprobada=True,
-                       verificacion_nota=f"Resuelta directamente por el {'administrador' if request.usuario['rol'] == 'administrador' else 'supervisor'}.")
+                       verificacion_nota=f"Resuelta directamente por el {NOMBRE_ROL.get(request.usuario['rol'], 'supervisor')}.")
     elif d["solucionado"]:
         cambios["estado"] = "revisada"                       # falta la constatación de otra persona o de la medición
         if presente:
@@ -333,7 +336,7 @@ def causa_presente(a):
     return False, ""
 
 
-@ruta(("POST",), roles=("encargado_cultivo", "supervisor", "administrador"))
+@ruta(("POST",), roles=A_CARGO)
 def verificar_alerta(request, pk):
     """Ticket de confirmación: quien está a cargo del cultivo (el encargado) constata la solución informada —por el técnico o por otra persona—
     y la confirma (alerta resuelta) o la rechaza (vuelve a revisión). El supervisor y el administrador pueden hacerlo como respaldo.
@@ -349,13 +352,13 @@ def verificar_alerta(request, pk):
     _exigir_pendiente(a)
     if a["estado"] != "revisada":
         raise invalido("Solo se puede verificar una alerta que ya fue revisada.")
-    # Regla: quien hizo la revisión no se confirma a sí mismo, salvo el administrador (no hay nadie por encima que la constate).
+    # Regla: quien hizo la revisión no se confirma a sí mismo, salvo el administrador y el cliente particular (no hay nadie por encima que la constate).
     autoconfirma = a.get("revision_por") == request.usuario["id"]
-    if autoconfirma and request.usuario["rol"] != "administrador":
+    if autoconfirma and request.usuario["rol"] not in ("administrador", "cliente"):
         raise ErrorApi(403, "misma_persona", "Quien hizo la revisión no puede confirmarla: debe constatarla otra persona.")
     ahora = ahora_ms()
     if autoconfirma:                                         # queda a la vista que el administrador se constató a sí mismo
-        nota = (nota + " " if nota else "") + "(constatado por el propio administrador)"
+        nota = (nota + " " if nota else "") + f"(constatado por el propio {NOMBRE_ROL.get(request.usuario['rol'], 'administrador')})"
     cambios = {"verificacion_por": request.usuario["id"], "verificacion_en": ahora, "verificacion_nota": nota, "verificacion_aprobada": d["aprobada"]}
     if d["aprobada"]:
         presente, detalle = causa_presente(a)
@@ -493,9 +496,10 @@ def comparacion(request):
     por_cultivo = request.GET.get("agrupar", "cultivo") == "cultivo" # un dispositivo por cultivo: se compara cada cultivo
     tipos, disp, inst, cult = repo.col("tipos_sensor"), repo.col("dispositivos"), repo.col("instalaciones"), repo.col("cultivos")
     grupos, unidades, nombres = defaultdict(list), {}, {}
+    vis = instalaciones_visibles(request.usuario)                  # el supervisor no ve los equipos de clientes particulares
     for s in repo.lista("sensores"):
         t, d = tipos.get(s["tipo_sensor_id"]), disp.get(s["dispositivo_id"])
-        if not t or not d or t["tipo_variable"] != tv:
+        if not t or not d or t["tipo_variable"] != tv or (vis is not None and d["instalacion_id"] not in vis):
             continue
         clave = d.get("cultivo_id") if por_cultivo and d.get("cultivo_id") else d["instalacion_id"]
         unidades[clave] = t["unidad"]

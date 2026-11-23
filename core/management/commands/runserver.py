@@ -36,10 +36,13 @@ class Command(RunserverCommand):
             call_command("seed_demo")
             call_command("usuarios_demo")                     # asegura al segundo encargado de cultivo (con los 4 dispositivos)
             try:
-                from core.management.commands.seed_demo import completar_sensores
+                from core.management.commands.seed_demo import aplicar_valores_reales, completar_sensores
                 n = completar_sensores()                      # agrega sensores y alertas nuevos a una base ya sembrada (sin borrar nada)
                 if n:
                     self.stdout.write(f"[sensores] Se agregaron {n} registros nuevos (agua, luz, N-P-K, pH, gases y sus alertas).")
+                v = aplicar_valores_reales()                  # pasa una base ya sembrada a los valores reales del informe (una sola vez)
+                if v:
+                    self.stdout.write(f"[valores reales] Se actualizaron {v} registros con los rangos de cada cultivo del informe.")
             except Exception as e:                            # nunca impide que el servidor arranque
                 self.stdout.write(f"[sensores] No se pudieron agregar los sensores nuevos: {e}")
             simulacion.iniciar(f"http://127.0.0.1:{self.port}", intervalo=float(os.environ.get("AQ_SIM_INTERVALO", "5")))

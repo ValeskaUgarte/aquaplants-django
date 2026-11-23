@@ -23,7 +23,8 @@ RESOLUCIONES = {"arreglado": "Arreglado", "reemplazado": "Reemplazado", "retirad
                 "sin_solucion": "No se pudo resolver"}
 ESTADOS = {"pendiente": "Pendiente", "en_curso": "En curso", "completada": "Realizada", "cancelada": "Cancelada"}
 ABIERTAS = ("pendiente", "en_curso")
-ROLES_SOLICITANTES = ("encargado_cultivo", "supervisor", "administrador")
+ROLES_SOLICITANTES = ("encargado_cultivo", "cliente", "supervisor", "administrador")
+ROLES_PERSONAL = ("encargado_cultivo", "supervisor", "administrador")          # quienes pueden elegir a qué técnico pedirle la visita
 
 
 def _tecnico_valido(tid):
@@ -72,6 +73,9 @@ def _ubicacion_publica(u):
 def _crear_orden(request, *, instalacion_id, dispositivo_id, cultivo_id, alerta, tipo, accion, nota, tecnico_txt, tecnico_id):
     """Crea la orden y devuelve (id, mapa). El mapa trae también los avisos; el llamador lo escribe de una vez."""
     ahora, mid, quien = ahora_ms(), repo.nuevo_id(), request.usuario
+    if quien["rol"] == "cliente":                                 # el cliente particular no elige técnico: la solicitud va a la bolsa (o al técnico de su instalación)
+        tecnico_id, tecnico_txt = None, ""
+    propia = bool(repo.col("instalaciones").get(instalacion_id, {}).get("propietario_id"))      # instalación de un cliente, no de la empresa
     if not tecnico_id:                                            # conexión directa: el técnico asignado a la instalación
         tecnico_id = repo.col("instalaciones").get(instalacion_id, {}).get("tecnico_id") or ""
     if tecnico_id:
@@ -85,7 +89,8 @@ def _crear_orden(request, *, instalacion_id, dispositivo_id, cultivo_id, alerta,
     destino = notificaciones.ids_tecnicos(tecnico_id or None, excluir=quien["id"])
     notificaciones.avisar(mapa, destino, "solicitud_tecnica", "Nueva solicitud técnica",
                           f"{donde} — {ACCIONES[accion]} ({TIPOS[tipo]}). {nota}".strip(" —"), alerta or "", instalacion_id, critica=bool(alerta), mantencion_id=mid)
-    jefes = [u["id"] for u in repo.lista("usuarios") if u.get("rol") in ("supervisor", "administrador") and u.get("activo", True) and not u.get("eliminado")
+    roles_jefe = ("administrador",) if propia else ("supervisor", "administrador")           # el supervisor no ve las instalaciones de clientes
+    jefes = [u["id"] for u in repo.lista("usuarios") if u.get("rol") in roles_jefe and u.get("activo", True) and not u.get("eliminado")
              and u["id"] != quien["id"] and u["id"] not in destino]
     notificaciones.avisar(mapa, jefes, "alerta_derivada", "Derivada a técnico / mantención",
                           f"{donde} — {quien['nombre']} pidió: {ACCIONES[accion]} ({TIPOS[tipo]}). {nota}".strip(" —"), alerta or "", instalacion_id, mantencion_id=mid)
@@ -173,14 +178,14 @@ def _guardar(request, mapa, mid, accion, entidad, entidad_id, detalle):
     return JsonResponse({"id": mid}, status=201)
 
 
-@ruta(("GET",), roles=ROLES_SOLICITANTES)
+@ruta(("GET",), roles=ROLES_PERSONAL)
 def tecnicos(request):
     """Técnicos disponibles para pedirles una mantención directamente."""
     return JsonResponse(sorted([{"id": u["id"], "nombre": u["nombre"], "email": u.get("email")} for u in repo.lista("usuarios")
                                 if u.get("rol") == "tecnico" and u.get("activo", True) and not u.get("eliminado")], key=lambda x: x["nombre"].lower()), safe=False)
 
 
-@ruta(("PATCH",), roles=("tecnico", "supervisor", "administrador"))
+@ruta(("PATCH",), roles=("tecnico", "cliente", "supervisor", "administrador"))
 def mantencion_detalle(request, pk):
     """El técnico acepta, devuelve o cierra su solicitud; el supervisor y el administrador además asignan, cancelan o cierran cualquiera."""
     d = validar(request.cuerpo, {"estado": Campo(opcion("en_curso", "completada", "cancelada", "devuelta")), "nota": Campo(texto(0, 500)), "tecnico": Campo(texto(0, 120)),
@@ -191,6 +196,12 @@ def mantencion_detalle(request, pk):
     if m is None:
         raise no_encontrado()
     quien, es_tec = request.usuario, request.usuario["rol"] == "tecnico"
+    if quien["rol"] == "cliente":                                 # solo puede cancelar su propia solicitud, y solo mientras ningún técnico la aceptó
+        exigir_acceso_instalacion(quien, m["instalacion_id"])
+        if m.get("creada_por") != quien["id"] or d.get("estado") != "cancelada" or set(d) - {"estado", "nota"}:
+            raise prohibido()
+        if m["estado"] != "pendiente":
+            raise conflicto("Un técnico ya aceptó esta solicitud: ya no se puede cancelar desde aquí. Avísale directamente.")
     if es_tec:
         if m.get("tecnico_id") and m["tecnico_id"] != quien["id"]:
             raise no_encontrado()
@@ -262,7 +273,8 @@ def mantencion_detalle(request, pk):
             notificaciones.por_ticket_confirmacion(m["alerta_id"], a, quien, nota, mapa, mantencion_id=pk)
             ticket = a
     if accion and not ticket:                                     # quien pidió la mantención y los jefes se enteran
-        interesados = [m.get("creada_por")] + [u["id"] for u in repo.lista("usuarios") if u.get("rol") in ("supervisor", "administrador") and u.get("activo", True)]
+        roles_jefe = ("administrador",) if repo.col("instalaciones").get(m["instalacion_id"], {}).get("propietario_id") else ("supervisor", "administrador")
+        interesados = [m.get("creada_por")] + [u["id"] for u in repo.lista("usuarios") if u.get("rol") in roles_jefe and u.get("activo", True)]
         notificaciones.avisar(mapa, [x for x in interesados if x and x != quien["id"]], "mantencion_actualizada", "Solicitud técnica actualizada",
                               f"{quien['nombre']} {accion}. {nota}".strip(), m.get("alerta_id") or "", m["instalacion_id"], mantencion_id=pk)
     try:

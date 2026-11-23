@@ -27,6 +27,7 @@ def ingesta(request):
         raise _excedido()
     lote = esquema_lote(cuerpo)
     # El lote debe declarar la misma identidad con la que se autenticó (evita suplantación entre sistemas).
-    if lote["id_dispositivo"] != disp["codigo"] or lote["id_sistema"] != inst["codigo"]:
+    # (un equipo entregado a un cliente particular sigue declarando el código de instalación con el que salió de fábrica)
+    if lote["id_dispositivo"] != disp["codigo"] or lote["id_sistema"] not in (inst["codigo"], disp.get("id_sistema_equipo")):
         raise ErrorApi(403, "identidad_no_coincide", "id_sistema/id_dispositivo no corresponden al dispositivo autenticado.")
     return JsonResponse(procesar_lote(disp, lote), status=200)

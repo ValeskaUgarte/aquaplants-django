@@ -1,5 +1,5 @@
 """Flujo de alertas con el supervisor cubriendo al encargado, bitácora, estado visible en el dispositivo y sensores nuevos."""
-from core.management.commands.seed_demo import completar_sensores
+from core.management.commands.seed_demo import aplicar_valores_reales, completar_sensores
 from core.rtdb import rtdb
 from core.tests.base import Base
 
@@ -153,7 +153,7 @@ class FlujoSupervisorTests(Base):
 
 class SensoresAmpliadosTests(Base):
     def test_cada_variable_nueva_genera_su_alerta(self):
-        casos = [("NIV1", "nivel_agua", 20, "%"), ("LUZ1", "luz_intensidad", 5, "klx"), ("NIT1", "nitrogeno", 30, "ppm"),
+        casos = [("NIV1", "nivel_agua", 20, "%"), ("LUZ1", "luz_intensidad", 5, "µmol/m²/s"), ("NIT1", "nitrogeno", 30, "mg/L"),
                  ("PH1", "ph", 8.5, "pH"), ("CO21", "co2", 2000, "ppm"), ("NH31", "amoniaco", 30, "ppm")]
         r = self.enviar([self.med(c, t, v, u) for c, t, v, u in casos]).json()
         self.assertEqual(len(r["alertas_generadas"]), len(casos), r)
@@ -170,3 +170,17 @@ class SensoresAmpliadosTests(Base):
         self.assertEqual(len(rtdb().get("usuarios")), usuarios)                       # no se tocó nada más
         self.assertEqual(sum(v["codigo"] == "NIV1" for v in rtdb().get("sensores").values()), 4)
         self.assertEqual(completar_sensores(), 0)                                    # segunda vez: no repite
+
+    def test_aplicar_valores_reales_pone_al_dia_una_base_antigua_y_es_idempotente(self):
+        # imita una base sembrada antes del cambio: la EC todavía en ppm y un umbral de pH con el valor viejo
+        rtdb().update({"tipos_sensor/nutrientes/unidad": "ppm", "tipos_sensor/nutrientes/nombre": "Nutrientes"})
+        rid = next(k for k, r in rtdb().get("reglas").items() if r["nombre"] == "Albahaca: pH demasiado ácido")
+        rtdb().set(f"reglas/{rid}/umbral", 5.4)
+        self.assertGreater(aplicar_valores_reales(), 0)
+        self.assertEqual(rtdb().get("tipos_sensor/nutrientes/unidad"), "mS/cm")
+        self.assertEqual(rtdb().get("tipos_sensor/nutrientes/nombre"), "Conductividad eléctrica (EC)")
+        self.assertEqual(rtdb().get(f"reglas/{rid}/umbral"), 5.5)                    # mínimo del pH de la albahaca (Tabla 13)
+        self.assertEqual(aplicar_valores_reales(), 0)                                # segunda vez: no repite
+        rtdb().set(f"reglas/{rid}/umbral", 5.3)                                      # el administrador la edita desde la consola
+        self.assertEqual(aplicar_valores_reales(), 0)
+        self.assertEqual(rtdb().get(f"reglas/{rid}/umbral"), 5.3)                    # y no se le pisa
