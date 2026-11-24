@@ -56,8 +56,21 @@ class Command(RunserverCommand):
             self.stderr.flush()
             os._exit(1)                                      # corre en un hilo del autoreload: sys.exit no cerraría el proceso
         from core.rtdb import rtdb
+        from core import conexion_nube
+        otro = conexion_nube.otro_servidor_activo() if rtdb().modo == "firebase" else None
+        simular = os.environ.get("AQ_SIMULACION", "0" if settings.AQ["PRODUCCION"] else "1") != "0"
+        if otro and not os.environ.get("RENDER"):           # RENDER=true lo define Render en su servidor
+            self.stderr.write(f"\nYa hay otro servidor AquaPlants encendido ({otro['equipo']}: {otro['url']}) usando la misma base.\n"
+                              "Usa ese, o apágalo (en Render: Suspend) y espera 3 minutos antes de iniciar uno aquí: dos servidores\n"
+                              "a la vez duplican la simulación y las alertas se abren y se cierran solas.\n")
+            self.stderr.flush()
+            os._exit(1)
+        if otro and simular:                                # Render despierta mientras un computador ya simula: no duplicar
+            self.stdout.write(f"[simulación] No se inicia: el servidor de {otro['equipo']} ya está simulando con la misma base.")
+            simular = False
         aviso_nube = ""
-        if os.environ.get("AQ_SIMULACION", "1") != "0" and not settings.AQ["PRODUCCION"]:
+        # En desarrollo la simulación arranca sola; en producción solo si se pide expresamente (AQ_SIMULACION=1, p. ej. la demo en Render).
+        if simular:
             from core.monitor import ciclo  # noqa: F401
             from core.simulacion import iniciar_monitor, simulacion
             self.stdout.write(f"\nConectando con la base de datos ({'Firebase' if settings.AQ['FIREBASE_URL'] else 'modo local'})...")

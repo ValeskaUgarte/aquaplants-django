@@ -13,6 +13,7 @@ Los respaldos contienen datos personales y hashes de contraseñas: la carpeta no
 import gzip
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -201,6 +202,8 @@ _ultimo_intento = 0.0
 def automatico():
     """Lo llama el monitor en cada ciclo: si toca, lanza el respaldo programado (no bloquea el monitor)."""
     global _ultimo_intento
+    if os.environ.get("AQ_RESPALDO_AUTOMATICO", "1") == "0":   # p. ej. en Render: su disco se borra en cada reinicio
+        return
     horas = repo.parametro_int("respaldo_cada_horas", 24)
     if horas <= 0 or _en_curso or time.time() - _ultimo_intento < 600:      # tras un intento, espera 10 min antes de revisar de nuevo
         return

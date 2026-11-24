@@ -12,6 +12,7 @@ Dirección pública, en este orden:
 La dirección es el único dato que se lee sin iniciar sesión (ver firebase/database.rules.json); todo lo demás exige usuario.
 """
 import logging
+import os
 import re
 import shutil
 import socket
@@ -39,11 +40,29 @@ def ip_local():
         s.close()
 
 
+def equipo():
+    """Quién es este servidor: «render» en Render (que define RENDER=true), o el nombre del computador."""
+    return "render" if os.environ.get("RENDER") else socket.gethostname()
+
+
+def otro_servidor_activo():
+    """Si OTRO servidor (otro computador, o Render) publicó su latido hace menos de 150 s, devuelve {url, equipo}; si no, None.
+    El latido se renueva cada 60 s, así que un servidor cerrado deja de contar a los 2,5 minutos."""
+    try:
+        s = rtdb().get("config/servidor") or {}
+    except Exception:  # noqa: BLE001
+        return None
+    if s.get("equipo") and s["equipo"] != equipo() and ahora_ms() - (s.get("actualizado") or 0) < 150_000:
+        return {"url": s.get("url"), "equipo": s["equipo"]}
+    return None
+
+
 def publicar(url, origen, puerto):
     """Escribe la dirección en Firebase. Nunca lanza errores."""
     _estado.update(url=url, origen=origen)
     try:
-        rtdb().set("config/servidor", {"url": url.rstrip("/"), "origen": origen, "ip_local": f"http://{ip_local()}:{puerto}", "actualizado": ahora_ms()})
+        rtdb().set("config/servidor", {"url": url.rstrip("/"), "origen": origen, "ip_local": f"http://{ip_local()}:{puerto}",
+                                       "equipo": equipo(), "actualizado": ahora_ms()})
     except Exception as e:  # noqa: BLE001
         log.warning("No se pudo publicar la dirección del servidor en Firebase: %s", e)
 
