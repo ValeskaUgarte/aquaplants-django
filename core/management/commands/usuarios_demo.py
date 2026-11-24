@@ -13,8 +13,8 @@ from django.core.management.base import BaseCommand
 from core import acceso, repo, seguridad
 from core.rtdb import rtdb
 
-ADICIONALES = [("encargado2@aquaplants.demo", "Encargado Demo 2 (todos los cultivos)", "encargado_cultivo"),
-               ("tecnico@aquaplants.demo", "Técnico Demo (servicio técnico)", "tecnico")]
+ADICIONALES = [("encargado2@aquaplants.demo", "Encargado Demo 2", "encargado_cultivo"),
+               ("tecnico@aquaplants.demo", "Técnico Demo", "tecnico")]
 
 
 def asegurar_usuarios_demo():

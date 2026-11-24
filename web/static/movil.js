@@ -8,7 +8,7 @@ const pila = [];                                             // pantallas abiert
 const esAdmin = () => AQ.usuario.rol === 'administrador';
 const esTecnico = () => AQ.usuario.rol === 'tecnico';
 const esSupervision = () => ['supervisor', 'administrador'].includes(AQ.usuario.rol);
-const LECTURAS_CLAVE = ['nivel_agua', 'nutrientes', 'luz_intensidad', 'ph', 'temperatura', 'caudal', 'co2'];
+const LECTURAS_CLAVE = ['ph', 'ec', 'temperatura', 'ppfd', 'humedad', 'temperatura_ambiente', 'nitrogeno', 'fosforo', 'potasio', 'fotoperiodo', 'consumo_hidrico'];
 
 function armar() {
   vaciar(raiz); pila.splice(0).forEach((h) => h.nodo.remove());
@@ -153,9 +153,10 @@ function tarjetaCultivo(c) {
     el('div', { class: 'fila' }, el('div', {}, el('h3', {}, c.nombre), el('div', { class: 'nota' }, `Dispositivo ${c.dispositivo_codigo} · ${c.instalacion}`)), chipCultivo(c)),
     estadoDispositivo(c, 1),
     el('div', { class: 'mini' }, [...conAlerta, ...clave].slice(0, 4).map((l) => el('div', { class: `dato ${l.alertas_abiertas ? 'critica' : 'ok'}` },
-      el('div', { class: 'n' }, l.tipo_nombre), el('div', { class: 'v' }, fmt(l.valor, 2), ' ', el('span', { class: 'u' }, l.unidad))))),
-    botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }, 'boton-secundario boton-tec'),
-    el('div', { class: 'nota ver-mas' }, 'Ver detalle ›'));
+      el('div', { class: 'n' }, l.tipo_nombre), el('div', { class: 'v' }, fmt(l.valor, 2), ' ', el('span', { class: 'u' }, l.unidad)),
+      l.referencia ? el('div', { class: 'ref' }, `Ref. ${l.referencia}`) : null))),
+    el('div', { class: 'nota ver-mas' }, 'Ver detalle ›'),
+    botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }, 'boton-secundario boton-tec'));
 }
 function tarjetaAlerta(a, alTerminar) {
   return el('div', { id: `al-${a.id}`, class: `tarjeta alerta ${a.tipo === 'sin_comunicacion' ? 'critica' : ''} ${a.estado}` },
@@ -185,9 +186,9 @@ function vHoy() {
     el('div', { class: `banner ${nivel}${n ? ' enlace' : ''}`, role: n ? 'link' : null, tabindex: n ? '0' : null, onclick: n ? () => irAAlerta(vivas[0].id) : null },
       el('div', { class: 'grande' }, n ? `${n} ${n === 1 ? 'falla requiere' : 'fallas requieren'} atención` : 'Todo en orden'),
       el('div', { class: 'peq' }, n ? `Toca para verla en Alertas · ${t.en_linea} de ${t.dispositivos} dispositivos en línea` : `${t.en_linea} de ${t.dispositivos} dispositivos en línea · ${todos.length} cultivos`)),
+    el('h2', {}, 'Tus cultivos'), ...(todos.length ? todos.map(tarjetaCultivo) : [el('p', { class: 'nota' }, 'No tienes cultivos asignados.')]),
     puedePedirTecnico() ? el('button', { class: 'pedir-rapido', type: 'button', onclick: () => pedirTecnico({ alTerminar: refrescar }) }, ICO('servicio-tecnico', 'item-ico-img'),
-      el('span', {}, el('strong', {}, 'Pedir técnico'), el('span', { class: 'nota' }, 'Arreglo, reemplazo, retiro o mantención de un equipo.'))) : null,
-    el('h2', {}, 'Tus cultivos'), ...(todos.length ? todos.map(tarjetaCultivo) : [el('p', { class: 'nota' }, 'No tienes cultivos asignados.')]));
+      el('span', {}, el('strong', {}, 'Pedir técnico'))) : null);
 }
 
 /*  Cultivos y detalle  */
@@ -206,7 +207,6 @@ function abrirCultivo(c0) {
       el('p', { class: `aviso ${c.estado_conexion === 'en_linea' ? 'ok' : 'error'}` }, `${ETIQUETA[c.estado_conexion] || c.estado_conexion}${c.lecturas[0] ? ` · última comunicación ${hace(c.lecturas[0].ultima_comunicacion)}` : ''}`),
       estadoDispositivo(c),
       mias.length ? [el('h2', {}, 'Fallas abiertas'), ...mias.map((a) => tarjetaAlerta(a, () => cerrarYReabrir(c)))] : null,
-      botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null, alTerminar: async () => { cerrarYReabrir(c); } }, 'boton-secundario boton-tec'),
       esAdmin() ? el('button', { class: 'boton sec', type: 'button', onclick: () => abrirSimulacion(c.dispositivo_codigo) }, ICO('simular-fallas', 'ico-btn'), 'Simular una falla en este cultivo') : null,
       el('p', { class: 'nota' }, `Plantas: ${plantas.map((p) => p.nombre).join(', ') || 'sin plantas registradas'}`),
       el('h2', {}, 'Sensores (últimas 2 horas)'));
@@ -219,11 +219,13 @@ function abrirCultivo(c0) {
       cuerpo.append(el('div', { class: `tarjeta ${l.alertas_abiertas ? 'con-alerta' : ''}` },
         el('div', { class: 'fila' }, el('h3', {}, l.tipo_nombre), el('span', { class: 'nota' }, tHace)),
         el('div', { class: 'dato' }, el('div', { class: 'v' }, tVal, ' ', el('span', { class: 'u' }, l.unidad)),
-          refs.length ? el('div', { class: 'n' }, `Normal: ${refs.map((r) => r.nombre).join(' y ')} genera alerta`) : null,
+          l.referencia ? el('div', { class: 'n' }, `Referencia: ${l.referencia}`) : null,
           l.alertas_abiertas ? el('div', { class: 'n alerta-n' }, `${l.alertas_abiertas} falla(s) abierta(s)`) : null), g));
       api.get(`/mediciones${qs({ sensor_id: l.sensor_id, desde: desde.toISOString(), hasta: hasta.toISOString() })}`)
         .then((m) => vaciar(g).append(grafico(puntosDe(m), { unidad: l.unidad, alto: 90, compacto: true, referencias: refs }))).catch(() => {});
     }
+    const pedir = botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null, alTerminar: async () => { cerrarYReabrir(c); } }, 'boton-secundario boton-tec');
+    if (pedir) cuerpo.append(pedir);
   });
 }
 function cerrarYReabrir(c) { const h = pila[pila.length - 1]; if (h) h.recargar(); }
@@ -288,7 +290,7 @@ async function hBitacora(cuerpo) {
 
 async function hComparacion(cuerpo) {
   const tipos = (await api.get('/tipos-sensor')).filter((t) => t.en_uso !== false);   // solo variables que algún cultivo muestra
-  const variable = seleccion(tipos.map((t) => [t.tipo_variable, `${t.nombre} (${t.unidad})`]), 'nivel_agua');
+  const variable = seleccion(tipos.map((t) => [t.tipo_variable, `${t.nombre} (${t.unidad})`]), 'ph');
   const periodo = seleccion([['6', 'Últimas 6 horas'], ['24', 'Últimas 24 horas'], ['168', 'Últimos 7 días']], '6');
   const zona = el('div', {});
   const cargar = async () => {
@@ -327,7 +329,6 @@ async function hSimulacion(cuerpo, h, preseleccion) {
   const ejecutar = (cuerpoAccion, ok) => accion(() => api.post('/simulacion/accion', { ...cuerpoAccion, dispositivo: disp.value }), ok, async () => { h.ultimo = disp.value; await h.recargar(); });
   const etiqueta = Object.fromEntries(s.escenarios.map((e) => [e.codigo, e.etiqueta]));
   vaciar(cuerpo).append(
-    el('p', { class: 'nota' }, 'Elige el cultivo y la falla. La alerta aparece en segundos (cuando el dispositivo envía su lectura) y la falla sigue hasta que alguien da la solución. «Sin comunicación» aparece después de los minutos configurados en Parámetros.'),
     campo('Cultivo / dispositivo', disp),
     actual ? el('p', { class: 'sim-activa' }, ICO(ICONO_ESCENARIO[actual] || 'alerta-detectada-c', 'ico-btn'), `Falla activa en este equipo: ${etiqueta[actual] || actual}`) : null,
     el('div', { class: 'rejilla-botones' }, s.escenarios.map((e) => botonEscenario(e, actual === e.codigo, `boton sec ${e.codigo === 'sin_comunicacion' ? 'peligro' : ''}`, false,
@@ -413,7 +414,7 @@ async function hInstalaciones(cuerpo, h) {
   });
   const nuevoCultivo = (iid) => abrirPantalla('Nuevo cultivo', (c) => {
     const nombre = el('input', {}), desc = el('input', {});
-    vaciar(c).append(el('p', { class: 'nota' }, `Instalación: ${inst.find((i) => i.id === iid).nombre}. Luego asígnale su dispositivo desde la web (consola).`), campo('Nombre', nombre), campo('Descripción', desc),
+    vaciar(c).append(campo('Nombre', nombre), campo('Descripción', desc),
       el('button', { class: 'boton', type: 'button', onclick: () => accion(async () => { await api.post('/cultivos', { instalacion_id: iid, nombre: nombre.value.trim(), descripcion: desc.value.trim() }); cerrarPantalla(); h.recargar(); }, 'Cultivo creado') }, 'Crear'));
   });
   vaciar(cuerpo).append(el('button', { class: 'boton', type: 'button', onclick: nuevaInst }, '+ Nueva instalación'),
@@ -457,8 +458,7 @@ async function hInformes(cuerpo) {
   const formato = seleccion([['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV']], 'xlsx');
   const desde = el('input', { type: 'date', value: hace7 }), hasta = el('input', { type: 'date', value: hoy });
   vaciar(cuerpo).append(campo('Tipo', tipo), campo('Formato', formato), campo('Desde', desde), campo('Hasta', hasta),
-    el('button', { class: 'boton', type: 'button', onclick: () => accion(async () => { const m = await descargar(`/informes${qs({ tipo: tipo.value, formato: formato.value, desde: desde.value, hasta: hasta.value })}`); mostrarAviso(m || 'Informe descargado', 'ok'); }) }, '⬇ Descargar informe'),
-    el('p', { class: 'nota' }, 'En el celular el archivo queda en la carpeta «Descargas».'));
+    el('button', { class: 'boton', type: 'button', onclick: () => accion(async () => { const m = await descargar(`/informes${qs({ tipo: tipo.value, formato: formato.value, desde: desde.value, hasta: hasta.value })}`); mostrarAviso(m || 'Informe descargado', 'ok'); }) }, '⬇ Descargar informe'));
 }
 
 /* Cuenta */

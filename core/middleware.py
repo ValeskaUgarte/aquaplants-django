@@ -39,7 +39,7 @@ class CabecerasSeguridad:
         respuesta["X-Frame-Options"] = "DENY"
         respuesta["Cross-Origin-Opener-Policy"] = "same-origin"
         respuesta["Cross-Origin-Resource-Policy"] = "same-origin"
-        respuesta["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+        respuesta["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self), payment=()"   # geolocalización: seguimiento del técnico, solo esta página
         respuesta["X-Request-Id"] = request.id
         if settings.AQ["PRODUCCION"]:
             respuesta["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"

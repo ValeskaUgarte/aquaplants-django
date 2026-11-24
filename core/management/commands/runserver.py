@@ -49,6 +49,13 @@ class Command(RunserverCommand):
                     self.stdout.write(f"[cultivos] Variables y umbrales de referencia aplicados ({n} cambios).")
             except Exception as e:
                 self.stdout.write(f"[cultivos] No se pudieron aplicar las referencias por cultivo: {e}")
+            try:
+                from core.management.commands.seed_demo import aplicar_variables_informe
+                n = aplicar_variables_informe()               # una sola vez: cada cultivo muestra solo las variables de su tabla del informe
+                if n:
+                    self.stdout.write(f"[cultivos] Variables del informe aplicadas ({n} cambios).")
+            except Exception as e:
+                self.stdout.write(f"[cultivos] No se pudieron aplicar las variables del informe: {e}")
             simulacion.iniciar(f"http://127.0.0.1:{self.port}", intervalo=float(os.environ.get("AQ_SIM_INTERVALO", "5")))
             iniciar_monitor()
         from core import acceso

@@ -63,7 +63,7 @@ class SolicitudesTecnicasTests(TecnicoBase):
         self.assertEqual(self.patch(self.tec, self.csrf_t, f"/api/mantenciones/{mid}", {"estado": "cancelada", "nota": "No corresponde"}).status_code, 403)
         self.assertEqual(self.patch(self.tec, self.csrf_t, f"/api/mantenciones/{mid}", {"estado": "completada", "nota": "Se cambió el equipo", "resolucion": "reemplazado", "repuestos": "Placa nueva"}).status_code, 204)
         hecho = self.enc.get("/api/mantenciones", {"estado": "completada"}).json()[0]
-        self.assertEqual((hecho["resolucion"], hecho["repuestos"], hecho["completada_por"]), ("reemplazado", "Placa nueva", "Técnico Demo (servicio técnico)"))
+        self.assertEqual((hecho["resolucion"], hecho["repuestos"], hecho["completada_por"]), ("reemplazado", "Placa nueva", "Técnico Demo"))
         self.assertIn("Solicitud técnica actualizada", [n["titulo"] for n in self.avisos(self.enc)])
         self.assertEqual(self.adm.get("/api/alertas").json()[0]["estado"], "revisada")      # ticket: el encargado debe confirmar que quedó bien
 
@@ -191,7 +191,7 @@ class UbicacionYEstadisticasTests(TecnicoBase):
         wb = load_workbook(io.BytesIO(r.content))
         self.assertEqual(wb.sheetnames, ["Resumen", "Mantenciones", "Técnicos", "Dispositivos y ubicación"])
         tec = list(wb["Técnicos"].iter_rows(values_only=True))
-        self.assertEqual((tec[1][0], tec[1][1], tec[1][3], tec[1][9]), ("Técnico Demo (servicio técnico)", 1, 1, 1))
+        self.assertEqual((tec[1][0], tec[1][1], tec[1][3], tec[1][9]), ("Técnico Demo", 1, 1, 1))
 
 
 class TicketConfirmacionTests(TecnicoBase):

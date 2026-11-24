@@ -118,9 +118,8 @@ class EscenariosTests(Base):
     def test_cada_escenario_dispara_su_alerta(self):
         from core.simulacion import _modulo_simulador
         mod = _modulo_simulador()
-        esperado = {"falta_agua": "Nivel de agua bajo", "exceso_agua": "Exceso de agua (desborde)", "falla_bomba": "Caudal bajo",
-                    "falta_nutrientes": "Conductividad eléctrica (EC) baja", "falta_luz": "Falta de luz (PPFD baja)", "exceso_luz": "Exceso de luz (PPFD alta)",
-                    "gas_amoniaco": "Gas contaminante amoníaco alto",
+        # solo las fallas de variables del informe (agua, bomba y amoníaco no tienen referencia por cultivo y no se simulan)
+        esperado = {"falta_nutrientes": "Conductividad eléctrica (EC) baja", "falta_luz": "Falta de luz (PPFD baja)", "exceso_luz": "Exceso de luz (PPFD alta)",
                     "falta_nitrogeno": "Falta de nitrógeno (N)", "humedad_alta": "Humedad ambiental alta",
                     "humedad_baja": "Humedad ambiental baja", "helada": "Riesgo de helada (temperatura ambiente baja)", "ph_acido": "pH demasiado ácido", "ph_alcalino": "pH demasiado alcalino",
                     "calor": "Temperatura de la solución alta", "exceso_nutrientes": "Conductividad eléctrica (EC) alta"}

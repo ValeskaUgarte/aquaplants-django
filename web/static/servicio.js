@@ -34,7 +34,7 @@ function mapaDispositivos(caja, puntos, { alto = 380, alElegir } = {}) {
     marco.style.height = `${alto}px`;
     const ir = (p) => { marco.src = `https://www.google.com/maps?q=${p.lat},${p.lng}&z=16&output=embed`; nota.textContent = `${p.titulo} · ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`; };
     ir(puntos[0]); ctl.elegir = (id) => { const p = puntos.find((x) => x.id === id); if (p) ir(p); };
-    caja.append(marco, nota, el('p', { class: 'suave' }, 'Para ver todos los dispositivos en un mismo mapa, el administrador debe poner la clave de Google Maps en Administración → Parámetros.'));
+    caja.append(marco, nota);
   };
   claveMapa().then(async (clave) => {
     if (!clave) return fallback();
@@ -78,7 +78,6 @@ async function vUbicacion(zona) {
         catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); }
       };
       vaciar(msg).append(el('div', { class: 'derivar-form' }, el('strong', {}, 'Indicar dónde está el equipo'), lat, lng,
-        el('p', { class: 'suave' }, 'Úsalo si el equipo no tiene GPS o no hay señal. Apenas el GPS vuelva a informar, manda el GPS.'),
         el('div', { class: 'botones-revision' }, el('button', { type: 'button', class: 'boton-secundario boton-ok', onclick: guardar }, 'Guardar'), el('button', { type: 'button', class: 'boton-secundario', onclick: () => vaciar(msg) }, 'Cancelar'))));
     };
     const ver = async () => {
@@ -93,14 +92,13 @@ async function vUbicacion(zona) {
       u ? el('div', { class: 'meta' }, `📍 ${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}${u.precision ? ` (±${fmt(u.precision, 0)} m)` : ''} · ${u.origen === 'manual' ? 'indicada a mano' : 'GPS del dispositivo'} · ${hace(u.actualizada_en)}`)
         : el('div', { class: 'meta suave' }, 'Sin posición todavía.'),
       el('div', { class: 'botones-revision' }, u ? el('button', { type: 'button', class: 'boton-secundario', onclick: ver }, 'Ver en el mapa y su recorrido') : null,
-        u ? el('a', { class: 'boton-texto', href: enlaceMapa(u), target: '_blank', rel: 'noopener' }, 'Abrir en Google Maps') : null,
-        u ? el('a', { class: 'boton-texto', href: enlaceRuta(u), target: '_blank', rel: 'noopener' }, 'Cómo llegar') : null,
+        u ? el('a', { class: 'boton-texto', href: enlaceMapa(u), target: '_blank', rel: 'noopener' }, 'Ver en Google Maps') : null,
         jefe ? el('button', { type: 'button', class: 'boton-texto', onclick: corregir }, 'Corregir ubicación') : null),
-      botonPedirTecnico({ dispositivo_id: d.id }), msg);
+      msg, botonPedirTecnico({ dispositivo_id: d.id }));
   };
   tarjetas.append(lista.map(tarjeta));
   const vUbicacionRecargar = () => vUbicacion(zona);
-  vaciar(zona).append(el('p', { class: 'ayuda' }, 'Dónde está cada dispositivo según su GPS. Si un equipo se mueve, aquí se ve su última posición y su recorrido.'), caja, trayectoTxt,
+  vaciar(zona).append(caja, trayectoTxt,
     lista.length ? tarjetas : el('p', { class: 'ayuda' }, 'No hay dispositivos para mostrar.'));
 }
 
@@ -165,13 +163,11 @@ async function vApi(zona) {
   const cargar = async () => { pintar(await api.get('/panel')); await mostrar(); };
   await cargar();
 
-  vaciar(zona).append(encabezado('Cómo se conecta el sistema'),
-    el('p', { class: 'ayuda' }, 'Los datos viajan de izquierda a derecha, de los sensores hasta la pantalla de cada persona. La API es la puerta por donde entran y salen.'), lista,
+  vaciar(zona).append(encabezado('Cómo se conecta el sistema'), lista,
     el('section', { class: 'bloque' }, el('h3', {}, 'Datos en vivo desde la API'),
-      el('p', { class: 'suave' }, 'Elige una ruta de la API. El panel se actualiza solo cada 5 segundos.'), el('div', { class: 'api-barra' }, el('label', {}, 'Ruta de la API: '), seleccion), linea, crudo, kpis, cultivos),
+      el('div', { class: 'api-barra' }, el('label', {}, 'Ruta de la API: '), seleccion), linea, crudo, kpis, cultivos),
         el('section', { class: 'api-fb' }, ICO('firebase', 'ico-api'), el('div', {}, el('h3', {}, 'Base de datos Firebase'),
-          el('p', {}, enNube ? `Conectada a la nube${fb.proyecto ? ` (proyecto «${fb.proyecto}»)` : ''}.` : 'Hoy el sistema guarda todo dentro de este servidor, sin internet. Para usar la nube de Firebase se configura una sola vez en el archivo .env del servidor.'),
-          el('p', { class: 'suave' }, 'Es seguro conectarla mientras las reglas de la base bloqueen el acceso directo y la clave se quede solo en el servidor.'),
+          el('p', {}, enNube ? `Conectada a la nube${fb.proyecto ? ` (proyecto «${fb.proyecto}»)` : ''}.` : 'Modo local, sin internet.'),
           fb.consola ? el('a', { class: 'boton-secundario', href: fb.consola, target: '_blank', rel: 'noopener' }, ICO('firebase', 'ico-btn'), 'Abrir la consola de Firebase') : null)),);
   return { refrescar: cargar, cada: 10000 };
 }
@@ -193,8 +189,7 @@ async function vOrdenesTecnico(zona) {
   const inicioHoy = new Date(); inicioHoy.setHours(0, 0, 0, 0);
   const grupos = () => ({ nuevas: todas.filter((m) => m.estado === 'pendiente'), curso: todas.filter((m) => m.estado === 'en_curso'),
     historial: todas.filter((m) => ['completada', 'cancelada'].includes(m.estado)) });
-  const VACIO = { nuevas: 'No hay solicitudes nuevas. Cuando te asignen una o llegue una a la bolsa, te avisamos con una notificación.',
-    curso: 'No tienes visitas en curso. Acepta una solicitud nueva para empezar.', historial: 'Todavía no has cerrado ninguna visita.' };
+  const VACIO = { nuevas: 'No hay solicitudes nuevas.', curso: 'No tienes visitas en curso.', historial: 'Todavía no has cerrado ninguna visita.' };
   const pintar = () => {
     const g = grupos(), hechasHoy = g.historial.filter((m) => m.estado === 'completada' && m.completada_en && new Date(m.completada_en) >= inicioHoy).length;
     if (AQ.abrirOrden) { const o = todas.find((m) => m.id === AQ.abrirOrden); if (o) zona.dataset.seg = o.estado === 'pendiente' ? 'nuevas' : o.estado === 'en_curso' ? 'curso' : 'historial'; }
@@ -210,7 +205,7 @@ async function vOrdenesTecnico(zona) {
     if (!forzar && (AQ.editando || /^(TEXTAREA|SELECT|INPUT)$/.test((document.activeElement || {}).tagName || '') || zona.querySelector('details[open]'))) return;
     todas = await api.get('/mantenciones'); pintar();
   };
-  vaciar(zona).append(el('p', { class: 'ayuda' }, 'Tus órdenes de trabajo: acepta una solicitud, ve al equipo con «Cómo llegar», avisa cuando llegues y cierra con tu informe. Si no puedes, devuélvela a la bolsa con el motivo.'), kp, seg, lista);
+  vaciar(zona).append(kp, seg, lista);
   await cargar(true);
   return { refrescar: () => cargar(false), cada: 15000 };
 }
@@ -225,12 +220,10 @@ async function vServicioTecnico(zona) {
     if (!forzar && (AQ.editando || /^(TEXTAREA|SELECT|INPUT)$/.test((document.activeElement || {}).tagName || ''))) return;
     const datos = await api.get(`/mantenciones${qs({ estado: zona.dataset.filtro || 'abiertas' })}`);
     vaciar(lista).append(datos.length ? datos.map((m) => el('article', { class: 'card-informe' }, cajaMantencion(m, () => cargar(true)))) : el('p', { class: 'ayuda' },
-      esTec ? 'No tienes solicitudes. Cuando te asignen una, o llegue una a la bolsa, aparecerá aquí con aviso.' : 'No hay solicitudes con este filtro.'));
+      esTec ? 'No tienes solicitudes.' : 'No hay solicitudes con este filtro.'));
   };
-  vaciar(zona).append(el('p', { class: 'ayuda' }, esTec ? 'Solicitudes que te asignaron y las que están en la bolsa (sin técnico). La primera que aceptes es tuya; si no puedes, devuélvela con el motivo.'
-      : 'Pedidos de arreglo, reemplazo, retiro o mantención de los dispositivos, con su estado y quién los atiende.'),
-    el('div', { class: 'barra-filtros' }, el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar'), sel),
-      botonPedirTecnico({ alTerminar: () => cargar(true) }, 'boton-secundario boton-tec', 'Pedir técnico')), lista);
+  vaciar(zona).append(el('div', { class: 'barra-filtros' }, el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar'), sel)), lista,
+    puedePedir ? el('div', { class: 'pie-acciones' }, botonPedirTecnico({ alTerminar: () => cargar(true) }, 'boton-secundario boton-tec', 'Pedir técnico')) : null);
   await cargar(true);
   return { refrescar: () => cargar(false), cada: 15000 };
 }

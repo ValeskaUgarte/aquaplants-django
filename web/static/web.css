@@ -360,3 +360,6 @@ tr:last-child td { border-bottom:0; }
 /* Variables que muestra cada cultivo (Administración › Cultivos y plantas) */
 .lista-casillas { display:grid; grid-template-columns:repeat(auto-fill, minmax(16rem, 1fr)); gap:.35rem .9rem; margin:.6rem 0; }
 .lista-casillas .casilla { display:flex; align-items:center; gap:.4rem; font-size:.92rem; }
+
+.lectura .ref { font-size:.7rem; color:var(--suave); margin-top:.1rem; }
+.cultivo .btn-pedir-tec { margin-top:.7rem; }

@@ -243,3 +243,27 @@ h4.con-ico,h5.con-ico { display:flex; align-items:center; gap:.5rem; } .ico-h { 
 .esc-marca { font-size:.75rem; font-weight:800; color:#1b6e3d; background:#fff; border-radius:999px; padding:.15rem .6rem; white-space:nowrap; }
 .botones-escenario,.rejilla-botones { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:.5rem; }
 .sim-activa { display:flex; align-items:center; gap:.4rem; font-weight:700; color:#1b6e3d; background:#e3f3e8; border-radius:10px; padding:.5rem .8rem; margin:.3rem 0; }
+
+/* Seguimiento del técnico hacia el equipo (solo en pantalla, no se guarda) */
+.seg { display:grid; gap:.55rem; background:#fff; border:1px solid #d7e6de; border-radius:12px; padding:.7rem; }
+.seg-cifras { display:grid; grid-template-columns:repeat(3,1fr); gap:.4rem; }
+.seg-cifra { background:#eef6f1; border-radius:10px; padding:.45rem .55rem; display:grid; }
+.seg-cifra span { font-size:.72rem; color:#5b6b75; text-transform:uppercase; letter-spacing:.03em; }
+.seg-cifra strong { font-size:1.05rem; color:#0b3d2c; }
+.seg-barra { height:.5rem; background:#e3ece7; border-radius:999px; overflow:hidden; }
+.seg-barra span { display:block; height:100%; background:linear-gradient(90deg,#1b8a4b,#0b6e4f); border-radius:999px; transition:width .6s; }
+.seg-croquis { width:100%; height:auto; background:#f4f8f6; border-radius:10px; border:1px solid #e1ebe6; }
+.seg-falta { stroke:#8a97a0; stroke-width:2; stroke-dasharray:5 5; }
+.seg-rastro { fill:none; stroke:#1565c0; stroke-width:3; stroke-linejoin:round; stroke-linecap:round; }
+.seg-inicio { fill:#8a97a0; }
+.seg-equipo { fill:#1b8a4b; stroke:#fff; stroke-width:3; }
+.seg-yo { fill:#1565c0; stroke:#fff; stroke-width:3; }
+.seg-etq { font-size:11px; font-weight:700; fill:#15251d; }
+.seg-norte { font-size:11px; fill:#5b6b75; }
+.seg-dato { margin:0; font-size:.85rem; }
+.seg-pie { display:flex; align-items:center; justify-content:space-between; gap:.5rem; flex-wrap:wrap; }
+.seg-modo { display:flex; gap:.35rem; margin:0; }
+.seg-modo button { font:inherit; font-size:.85rem; padding:.35rem .75rem; border-radius:999px; border:1px solid #cfd9d3; background:#fff; color:#15251d; cursor:pointer; }
+.seg-modo button.activo { background:#0b6e4f; border-color:#0b6e4f; color:#fff; }
+.pie-acciones { display:flex; justify-content:flex-end; margin-top:1rem; }
+@media (max-width:420px) { .seg-cifra strong { font-size:.95rem; } }

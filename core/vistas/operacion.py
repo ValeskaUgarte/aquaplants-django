@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from django.http import JsonResponse
 
-from core import variables, alertas as modulo_alertas
+from core import referencias, variables, alertas as modulo_alertas
 from core import notificaciones
 from core import cache_micro
 from core import repo, seguridad
@@ -104,6 +104,7 @@ def _estado_instalacion(iid):
             "sensor_id": s["id"], "codigo": s["codigo"], "nombre": s["nombre"], "tipo_nombre": variables.nombre_visible(t),
             "simulado": bool(t.get("simulado")),
             "tipo_variable": t["tipo_variable"], "unidad": t["unidad"], "cultivo": cult.get(d.get("cultivo_id"), {}).get("nombre"), "cultivo_id": d.get("cultivo_id"),
+            "referencia": referencias.texto(cult.get(d.get("cultivo_id"), {}).get("nombre"), t["tipo_variable"]),
             "dispositivo_codigo": d["codigo"], "dispositivo_nombre": d["nombre"], "estado_conexion": d.get("estado_conexion", "sin_datos"),
             "ultima_comunicacion": iso(d.get("ultima_comunicacion")), "calidad_enlace": d.get("calidad_enlace"),
             "valor": u["valor"] if u else None, "medido_en": iso(u["ts"]) if u else None,

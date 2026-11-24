@@ -9,16 +9,16 @@ informes y la app móvil. Una variable oculta en un cultivo:
 Si un cultivo no tiene la lista (bases antiguas o cultivos creados antes de esta función), se muestran todas sus variables.
 
 Por defecto (documento de referencias por cultivo):
-  * Con rango de referencia respaldado por fuentes: pH, EC, temperatura de la solución y ambiente, humedad, fotoperiodo, PPFD, N, P, K
-    y consumo de agua.
-  * Solo simulación (sin rango por especie, pero útiles para demostrar fallas): caudal, nivel de agua y amoníaco.
-  * Ocultas: CO₂ (sin fuente), «parámetro de cultivo» (repetía el pH), nutrientes en ppm (reemplazada por EC en mS/cm) e intensidad
-    de luz en klx (reemplazada por PPFD).
+  * Solo las variables de la tabla de referencia del cultivo en el informe (core/referencias.py): pH, EC, temperatura de la
+    solución y ambiente, humedad, fotoperiodo, PPFD, N, P, K y consumo de agua (el tomate cherry no tiene temperatura ambiente).
+  * Ocultas: caudal, nivel de agua, amoníaco y CO₂ (sin referencia verificable por especie), «parámetro de cultivo» (repetía el pH),
+    nutrientes en ppm (reemplazada por EC en mS/cm) e intensidad de luz en klx (reemplazada por PPFD).
 """
 from core import repo
+from core.referencias import SIN_REFERENCIA
 
-OCULTAS_POR_DEFECTO = frozenset({"co2", "parametro_cultivo", "nutrientes", "luz_intensidad"})
-SOLO_SIMULACION = frozenset({"caudal", "nivel_agua", "amoniaco"})
+OCULTAS_POR_DEFECTO = SIN_REFERENCIA
+SOLO_SIMULACION = frozenset()
 
 
 def por_defecto() -> dict:

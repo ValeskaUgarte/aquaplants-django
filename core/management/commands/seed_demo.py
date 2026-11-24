@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from core import acceso, repo, seguridad
+from core.referencias import REFERENCIAS, variables_del_cultivo
 from core.variables import OCULTAS_POR_DEFECTO, SOLO_SIMULACION
 from core.rtdb import rtdb
 from core.util import ahora_ms, clave_ms
@@ -31,9 +32,9 @@ TIPOS = [
     # sensores ampliados: agua, luz, nutrientes por elemento, pH y gases contaminantes
     ("nivel_agua", "Nivel de agua", "%", 0, 100),
     ("luz_intensidad", "Intensidad de luz", "klx", 0, None),
-    ("nitrogeno", "Nitrógeno (N)", "ppm", 0, None),
-    ("fosforo", "Fósforo (P)", "ppm", 0, None),
-    ("potasio", "Potasio (K)", "ppm", 0, None),
+    ("nitrogeno", "Nitrógeno (N)", "mg/L", 0, None),
+    ("fosforo", "Fósforo (P)", "mg/L", 0, None),
+    ("potasio", "Potasio (K)", "mg/L", 0, None),
     ("ph", "pH de la solución", "pH", 0, 14),
     ("co2", "CO₂ ambiental", "ppm", 0, None),
     ("amoniaco", "Amoníaco (NH₃)", "ppm", 0, None),
@@ -53,24 +54,13 @@ SENSORES = [("CAU1", "caudal"), ("CON1", "consumo_hidrico"), ("NUT1", "nutriente
 # (ahorra escrituras en Firebase). Si un administrador vuelve a mostrar la variable, un equipo real sí puede enviarla.
 SIN_SIMULAR = {cod for cod, tipo in SENSORES if tipo in OCULTAS_POR_DEFECTO}
 
-# Rangos de referencia por cultivo (documento «Reglas de alerta por cultivo», tablas 12 a 15: Shareef et al. 2024, Jones 2014,
-# UF/IFAS HS1422 y estudios citados ahí). (mín, máx) = rango; un número solo = valor de referencia.
+# Rangos de referencia por cultivo: core/referencias.py (tablas 12 a 15 del informe). Criterios para armar las reglas:
 #   * pH, EC y fotoperiodo con valor único: se alerta fuera de valor ± TOLERANCIA (un valor exacto alertaría siempre por ruido).
 #     Lo mismo si el rango es más angosto que esa tolerancia (EC de la frutilla: 1,8 vegetativo y 2,0 fructificación → 1,5–2,3).
 #   * N, P y K: valor de referencia de la formulación; se alerta por falta bajo el 70 % (criterio que ya usaba el sistema).
-#   * Sin dato en la tabla (temperatura ambiente del tomate cherry): no hay alerta de rango («Sin fuente»).
+#   * Sin dato en la tabla (temperatura ambiente del tomate cherry): la variable no se muestra ni genera alertas.
 #   * Tomate cherry, EC: 1,6 (vegetativo) a 4,2 (fructificación). El 3,2–4,2 es una formulación experimental, no un límite universal.
 #   * Frutilla, N-P-K: se usan los de crecimiento vegetativo (los de fructificación son 182/82/301 mg/L).
-REFERENCIAS = {
-    "Lechuga": {"ph": (5.0, 7.0), "ec": (1.5, 2.5), "temperatura": (18, 25), "temperatura_ambiente": (18, 27), "humedad": (45, 80),
-                "fotoperiodo": (14, 17), "ppfd": (150, 250), "nitrogeno": 200, "fosforo": 50, "potasio": 300},
-    "Albahaca": {"ph": (5.5, 6.5), "ec": (1.1, 1.6), "temperatura": (18, 24), "temperatura_ambiente": (18, 30), "humedad": (50, 85),
-                 "fotoperiodo": 16, "ppfd": (80, 250), "nitrogeno": 210, "fosforo": 80, "potasio": 275},
-    "Tomate cherry": {"ph": (5.5, 6.5), "ec": (1.6, 4.2), "temperatura": (18, 27), "humedad": (50, 80),
-                      "fotoperiodo": 15, "ppfd": (50, 200), "nitrogeno": 225, "fosforo": 50, "potasio": 321},
-    "Frutilla": {"ph": 6.0, "ec": (1.8, 2.0), "temperatura": (18, 30), "temperatura_ambiente": (18, 30), "humedad": (40, 80),
-                 "fotoperiodo": (12, 16), "ppfd": (115, 350), "nitrogeno": 207, "fosforo": 65, "potasio": 184},
-}
 TOLERANCIA = {"ph": 0.5, "ec": 0.3, "fotoperiodo": 1}
 NUTRIENTES = ("nitrogeno", "fosforo", "potasio")
 
@@ -191,8 +181,9 @@ def sembrar():
                                         "ubicacion": UBICACIONES.get(codigo_inst, ""), "creada_en": ahora}
         for c in cultivos:
             cid, did, secreto = repo.nuevo_id(), repo.nuevo_id(), seguridad.token_aleatorio(32)
+            visibles = variables_del_cultivo(c["nombre"]) or variables_cultivo
             mapa[f"cultivos/{cid}"] = {"instalacion_id": iid, "nombre": c["nombre"], "descripcion": c["descripcion"], "activo": True,
-                                       "variables": variables_cultivo}
+                                       "variables": visibles}
             for p, nombre_planta in enumerate(c["plantas"], 1):
                 mapa[f"plantas/{repo.nuevo_id()}"] = {"cultivo_id": cid, "codigo": f"P{p}", "nombre": nombre_planta, "activa": True}
             mapa[f"dispositivos/{did}"] = {
@@ -206,7 +197,7 @@ def sembrar():
                 mapa[f"sensores/{sid}"] = {"dispositivo_id": did, "tipo_sensor_id": tipo, "codigo": cod,
                                            "nombre": f"{nombres[tipo]} · {c['nombre']}", "activo": True}
                 base = niveles_completos(c["niveles"], c["nombre"])[tipo]
-                if cod not in SIN_SIMULAR:
+                if cod not in SIN_SIMULAR and tipo in visibles:
                     sensores_sim.append({"id_sensor": cod, "tipo_variable": tipo, "unidad": unidades[tipo], "base": base})
                 valor = base
                 for m in range(144):                                   # 24 h, una medición cada 10 min
@@ -216,13 +207,16 @@ def sembrar():
                     hora = datetime.fromtimestamp(t / 1000, timezone.utc).strftime("%Y%m%d%H")
                     contadores[(iid, hora)] = contadores.get((iid, hora), 0) + 1
                 mapa[f"ultima/{sid}"] = {"ts": ahora - 300_000, "valor": round(valor, 3), "conexion": "conectado"}
+            tipo_de = dict(SENSORES)
             for cod_sensor, nombre_regla, op, umbral, *sev in _reglas_del_cultivo(c["nombre"], c["niveles"]):
                 mapa[f"reglas/{repo.nuevo_id()}"] = {"nombre": nombre_regla, "sensor_id": ids_sensor[cod_sensor], "operador": op,
-                                                     "umbral": umbral, "activa": True, **({"severidad": sev[0]} if sev else {})}
+                                                     "umbral": umbral, "activa": tipo_de[cod_sensor] in visibles,
+                                                     **({"severidad": sev[0]} if sev else {})}
             dispositivos_demo.append({"id_sistema": codigo_inst, "id_dispositivo": c["dispositivo"], "secreto": secreto,
                                       "cultivo": c["nombre"], "sensores": sensores_sim})
     for (iid, hora), n in contadores.items():
         mapa[f"contadores/{iid}/{hora}"] = n
+    mapa[MARCA_REFERENCIAS] = mapa[MARCA_VARIABLES_INFORME] = ahora      # una base nueva ya nace con las referencias del informe
 
     claves = list(mapa)
     for i in range(0, len(claves), 1000):                              # lotes: una escritura atómica por cada 1000 rutas
@@ -232,7 +226,7 @@ def sembrar():
     for email, nombre, rol, insts in [("admin@aquaplants.demo", "Administrador Demo", "administrador", []),
                                       ("supervisor@aquaplants.demo", "Supervisor Demo", "supervisor", []),
                                       ("encargado@aquaplants.demo", "Encargado Demo", "encargado_cultivo", ["INV-NORTE"]),
-                                      ("tecnico@aquaplants.demo", "Técnico Demo (servicio técnico)", "tecnico", [])]:
+                                      ("tecnico@aquaplants.demo", "Técnico Demo", "tecnico", [])]:
         pw = acceso.clave_demo() or seguridad.generar_password_demo()
         repo.crear_usuario(email, nombre, rol, seguridad.hash_password(pw), [ids_inst[i] for i in insts])
         credenciales.append({"email": email, "rol": rol, "password": pw})
@@ -283,7 +277,7 @@ def completar_sensores():
                     contadores[(iid, hora)] = contadores.get((iid, hora), 0) + 1
                 mapa[f"ultima/{sid}"] = {"ts": ahora - 300_000, "valor": round(valor, 3), "conexion": "conectado"}
                 agregados += 1
-            if cod not in SIN_SIMULAR:
+            if cod not in SIN_SIMULAR and tipo in (variables_del_cultivo(cultivo) or {tipo: True}):
                 sim.setdefault(d["codigo"], []).append({"id_sensor": cod, "tipo_variable": tipo, "unidad": info_tipo[tipo][2], "base": base})
         hechas = {(r.get("sensor_id"), r.get("nombre")) for r in reglas.values()}
         for cod_sensor, nombre_regla, op, umbral, *sev in _reglas_del_cultivo(cultivo, niveles):
@@ -379,6 +373,76 @@ def aplicar_referencias():
             niv = niveles_completos(niveles, nombre) if niveles else {}
             dev["sensores"] = [{**x, "base": niv.get(x["tipo_variable"], x.get("base"))} for x in dev.get("sensores", [])
                                if x.get("id_sensor") not in SIN_SIMULAR]
+        archivo.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    repo.invalidar()
+    cache_micro.limpiar()
+    return cambios
+
+
+MARCA_VARIABLES_INFORME = "migraciones/variables_informe_v2"
+NOMBRES_DEMO = {"Técnico Demo (servicio técnico)": "Técnico Demo", "Encargado Demo 2 (todos los cultivos)": "Encargado Demo 2"}
+
+
+def aplicar_variables_informe():
+    """Deja cada cultivo de demostración con SOLO las variables de su tabla del informe (una sola vez; marca MARCA_VARIABLES_INFORME):
+      * cultivos/{id}/variables = las de su tabla (caudal, nivel de agua y amoníaco salen de todos; el tomate cherry, además,
+        deja de mostrar la temperatura ambiente, que su tabla no trae),
+      * N, P y K pasan a mg/L (como en el informe; 1 ppm = 1 mg/L en solución acuosa, los valores no cambian),
+      * las reglas de las variables que ya no se muestran se desactivan y sus alertas abiertas se resuelven,
+      * los nombres de los usuarios de demostración ya no repiten el rol («Técnico Demo (servicio técnico)» → «Técnico Demo»),
+      * la simulación deja de enviar las variables ocultas y usa mg/L.
+    Devuelve cuántos cambios hizo."""
+    from core import alertas, cache_micro, notificaciones
+    if not rtdb().get("usuarios") or rtdb().get(MARCA_VARIABLES_INFORME):
+        return 0
+    repo.invalidar()
+    tipos, cultivos = repo.col("tipos_sensor"), repo.col("cultivos")
+    mapa, visibles_por_disp = {}, {}
+    for cod in NUTRIENTES:
+        if cod in tipos and tipos[cod].get("unidad") != "mg/L":
+            mapa[f"tipos_sensor/{cod}/unidad"] = "mg/L"
+    for cod, t in tipos.items():
+        if isinstance(t, dict) and t.get("simulado"):
+            mapa[f"tipos_sensor/{cod}/simulado"] = None
+    for cid, c in cultivos.items():
+        v = variables_del_cultivo((c or {}).get("nombre"))
+        if v and (c.get("variables") or {}) != v:
+            mapa[f"cultivos/{cid}/variables"] = v
+    for d in repo.lista("dispositivos"):
+        c = cultivos.get(d.get("cultivo_id")) or {}
+        visibles_por_disp[d["id"]] = (d.get("codigo"), variables_del_cultivo(c.get("nombre")))
+    sensores = {s["id"]: s for s in repo.lista("sensores")}
+    for r in repo.lista("reglas"):
+        s = sensores.get(r.get("sensor_id"))
+        if not s or not r.get("activa", True):
+            continue
+        _, vis = visibles_por_disp.get(s.get("dispositivo_id"), (None, None))
+        tv = (tipos.get(s.get("tipo_sensor_id")) or {}).get("tipo_variable")
+        if vis is not None and tv not in vis:
+            mapa[f"reglas/{r['id']}/activa"] = False
+            alertas.normalizar(f"u:{r['id']}:{r['sensor_id']}", mapa, "La variable ya no se monitorea en este cultivo (sin referencia en el informe).")
+    for uid, u in repo.col("usuarios").items():
+        if isinstance(u, dict) and u.get("nombre") in NOMBRES_DEMO:
+            mapa[f"usuarios/{uid}/nombre"] = NOMBRES_DEMO[u["nombre"]]
+    cambios = len(mapa)
+    mapa[MARCA_VARIABLES_INFORME] = ahora_ms()
+    claves = list(mapa)
+    try:
+        for i in range(0, len(claves), 1000):
+            rtdb().update({c: mapa[c] for c in claves[i:i + 1000]})
+    except Exception:
+        alertas.reiniciar()
+        notificaciones.descartar_push()
+        raise
+    notificaciones.despachar_push()
+    archivo = Path(settings.AQ["DATA_DIR"]) / "dispositivos-demo.json"
+    if archivo.exists():
+        vis_por_codigo = {cod: vis for cod, vis in visibles_por_disp.values()}
+        config = json.loads(archivo.read_text(encoding="utf-8"))
+        for dev in config:
+            vis = vis_por_codigo.get(dev.get("id_dispositivo"))
+            dev["sensores"] = [{**x, "unidad": "mg/L" if x.get("tipo_variable") in NUTRIENTES else x.get("unidad")}
+                               for x in dev.get("sensores", []) if vis is None or x.get("tipo_variable") in vis]
         archivo.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
     repo.invalidar()
     cache_micro.limpiar()

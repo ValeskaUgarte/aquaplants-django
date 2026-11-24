@@ -39,9 +39,19 @@ def _cargar_clase_dispositivo():
     return _modulo_simulador().DispositivoSimulado
 
 
+SIN_ALERTA = {"consumo_hidrico"}      # variables que se muestran pero no tienen regla de alerta (su referencia es por planta y día)
+
+
 def escenarios():
-    """Fallas que se pueden provocar en la demostración: [{codigo, etiqueta}]."""
-    return [{"codigo": k, "etiqueta": v["etiqueta"]} for k, v in _modulo_simulador().ESCENARIOS.items()]
+    """Fallas que se pueden provocar en la demostración: [{codigo, etiqueta}]. Solo las que producen una alerta en alguna variable
+    que hoy muestra algún cultivo (las de caudal, nivel de agua o amoníaco no se ofrecen si esas variables están ocultas)."""
+    from core import variables
+    salida = []
+    for k, v in _modulo_simulador().ESCENARIOS.items():
+        cambia = set(v["cambios"]) - SIN_ALERTA
+        if k == "sin_comunicacion" or any(variables.en_uso(tv) for tv in cambia):
+            salida.append({"codigo": k, "etiqueta": v["etiqueta"]})
+    return salida
 
 
 class Simulacion:

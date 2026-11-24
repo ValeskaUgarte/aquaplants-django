@@ -55,7 +55,8 @@ async function enrutar() {
 const encabezado = (titulo, ...extra) => el('header', { class: 'encabezado' }, el('h2', {}, titulo), ...extra);
 
 /*  Panel general */
-const tarjetaLectura = (l) => el('div', { class: 'lectura' }, el('span', { class: 'nm' }, l.tipo_nombre), el('strong', {}, l.valor == null ? '—' : `${fmtLectura(l.valor)} ${l.unidad}`));
+const tarjetaLectura = (l) => el('div', { class: 'lectura' }, el('span', { class: 'nm' }, l.tipo_nombre), el('strong', {}, l.valor == null ? '—' : `${fmtLectura(l.valor)} ${l.unidad}`),
+  l.referencia ? el('span', { class: 'ref' }, `Ref. ${l.referencia}`) : null);
 
 /* Falla que se está atendiendo ahora (una línea, sin el proceso): al tocarla se abre esa alerta en Alertas.
    Lo solucionado o por confirmar no se muestra en el panel: queda en Alertas, en el seguimiento, en los informes y en la auditoría. */
@@ -74,9 +75,9 @@ function tarjetaCultivo(c, lecturas, iid, inst = null) {
     el('div', { class: 'cultivo-cab' }, el('h4', {}, c.nombre), estado(c.estado_conexion)),
     inst ? el('div', { class: 'cultivo-inst' }, ICO('instalaciones-kpi', 'ico-estado'), `${inst.nombre} · ${inst.codigo}`) : null,
     el('div', { class: 'suave' }, `Dispositivo ${c.dispositivo_codigo}`, fallasVivas(c).length ? el('strong', { class: 'alerta-n' }, ` · ${fallasVivas(c).length} alerta(s)`) : null),
-    botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }),
     fallasWeb(c),
-    el('div', { class: 'lecturas' }, lecturas.map(tarjetaLectura)));
+    el('div', { class: 'lecturas' }, lecturas.map(tarjetaLectura)),
+    botonPedirTecnico({ dispositivo_id: c.dispositivo_id || null }));
 }
 
 async function vPanel(cont) {
@@ -86,13 +87,14 @@ async function vPanel(cont) {
     const estados = await Promise.all(d.instalaciones.map((i) => api.get(`/estado-actual${qs({ instalacion_id: i.id })}`)));
     const t = d.totales, todos = d.instalaciones.flatMap((i, k) => i.cultivos.map((c) => ({ c, i, k })));
     vaciar(zona).append(
-      encabezado('Panel general', botonPedirTecnico({ alTerminar: cargar }), el('span', { class: 'insignia' }, `Base de datos: ${d.modo_bd === 'firebase' ? 'Firebase Realtime Database' : 'modo local'}`)),
+      encabezado('Panel general', el('span', { class: 'insignia' }, `Base de datos: ${d.modo_bd === 'firebase' ? 'Firebase Realtime Database' : 'modo local'}`)),
       el('dl', { class: 'indicadores' },
         [['Instalaciones', t.instalaciones, 'instalaciones-kpi'], ['Dispositivos en línea', `${t.en_linea} de ${t.dispositivos}`, 'dispositivos-en-linea'], ['Sin comunicación', t.sin_comunicacion, 'sin-comunicacion'],
           ['Alertas abiertas', t.alertas_abiertas, 'alertas-abiertas'], ['Mediciones (24 h)', fmt(t.mediciones_24h, 0), 'mediciones-24h']].map(([k, v, ico]) => el('div', { class: 'ind' }, ICO(ico, 'ico-kpi'), el('div', {}, el('dt', {}, k), el('dd', {}, v))))),
       todos.length ? el('div', { class: 'cultivos' }, todos.map(({ c, i, k }) => tarjetaCultivo(c, estados[k].filter((e) => e.cultivo_id === c.id), i.id, d.instalaciones.length > 1 ? i : null)))
         : d.instalaciones.length ? el('p', { class: 'ayuda' }, 'Tus instalaciones aún no tienen cultivos con dispositivo.') : null,
-      !d.instalaciones.length ? el('p', { class: 'ayuda' }, 'No tienes instalaciones asignadas. Solicita acceso a un administrador.') : null);
+      !d.instalaciones.length ? el('p', { class: 'ayuda' }, 'No tienes instalaciones asignadas. Solicita acceso a un administrador.') : null,
+      puedePedirTecnico() ? el('div', { class: 'pie-acciones' }, botonPedirTecnico({ alTerminar: cargar })) : null);
   };
   await cargar();
   return { refrescar: cargar, cada: 10000 };
@@ -128,6 +130,7 @@ async function pestanaEstado(cuerpo, id) {
         el('p', { class: 'ayuda' }, 'Plantas: ', plantas.filter((p) => p.cultivo_id === c.id).map((p) => p.nombre).join(', ') || 'sin plantas registradas'),
         tabla([{ titulo: 'Variable', ver: (r) => r.tipo_nombre }, { titulo: 'Sensor', ver: (r) => `${r.codigo} · ${r.nombre}` },
           { titulo: 'Último valor', num: true, ver: (r) => (r.valor == null ? 'Sin datos' : el('strong', {}, `${fmtLectura(r.valor)} ${r.unidad}`)) },
+          { titulo: 'Referencia (informe)', ver: (r) => r.referencia || '—' },
           { titulo: 'Medido', ver: (r) => hace(r.medido_en) }, { titulo: 'Origen', ver: (r) => `${r.dispositivo_codigo} · ${ETIQUETA[r.medicion_conexion] || '—'}` },
           { titulo: 'Enlace', num: true, ver: (r) => (r.calidad_enlace == null ? '—' : `${r.calidad_enlace} %`) },
           { titulo: 'Alertas', num: true, ver: (r) => (r.alertas_abiertas ? el('strong', {}, r.alertas_abiertas) : 0) }], f, 'Este cultivo aún no tiene sensores con datos.'),
@@ -230,8 +233,7 @@ async function vComparacion() {
   const selV = el('select', { onchange: (e) => { est.variable = e.target.value; cargar(); } }, tipos.map((t) => el('option', { value: t.tipo_variable }, t.nombre)));
   const selR = el('select', { onchange: (e) => { est.rango = e.target.value; cargar(); } }, [['24h', 'Últimas 24 horas'], ['7d', 'Últimos 7 días'], ['30d', 'Últimos 30 días']].map(([v, t]) => el('option', { value: v }, t)));
   const selA = el('select', { onchange: (e) => { est.agrupar = e.target.value; cargar(); } }, el('option', { value: 'cultivo' }, 'Por cultivo (un dispositivo por cultivo)'), el('option', { value: 'instalacion' }, 'Por instalación'));
-  vaciar(z).append(encabezado('Comparación'), el('p', { class: 'ayuda' }, 'Compara una misma variable entre cultivos (o instalaciones). Cada gráfico usa su propia escala vertical: cada cultivo tiene sus niveles normales.'),
-    el('div', { class: 'filtros' }, el('label', { class: 'campo' }, el('span', {}, 'Variable'), selV), el('label', { class: 'campo' }, el('span', {}, 'Rango'), selR),
+  vaciar(z).append(encabezado('Comparación'), el('div', { class: 'filtros' }, el('label', { class: 'campo' }, el('span', {}, 'Variable'), selV), el('label', { class: 'campo' }, el('span', {}, 'Rango'), selR),
       el('label', { class: 'campo' }, el('span', {}, 'Agrupar'), selA)), res);
   async function cargar() {
     if (!est.variable) return;
@@ -266,8 +268,7 @@ async function vCuenta() {
   function pintar2fa(activo, cfg) {
     vaciar(zona2fa);
     const codigo = el('input', { type: 'text', inputmode: 'numeric', pattern: '\\d{6}', maxlength: 6, required: true, autocomplete: 'one-time-code' });
-    if (!activo && !cfg) zona2fa.append(el('p', { class: 'ayuda' }, 'Agrega un código temporal de una aplicación autenticadora para proteger tu cuenta.'),
-      el('button', { class: 'boton', type: 'button', onclick: async () => { try { vaciar(msg2); pintar2fa(false, await api.post('/auth/2fa/iniciar')); } catch (e) { msg2.append(aviso('error', e.message)); } } }, 'Configurar segundo factor'));
+    if (!activo && !cfg) zona2fa.append(el('button', { class: 'boton', type: 'button', onclick: async () => { try { vaciar(msg2); pintar2fa(false, await api.post('/auth/2fa/iniciar')); } catch (e) { msg2.append(aviso('error', e.message)); } } }, 'Configurar segundo factor'));
     else if (!activo) {
       const form = el('form', {}, el('p', {}, 'Ingresa esta clave en tu aplicación autenticadora (tipo de clave: basada en tiempo):'), el('p', {}, el('code', { class: 'secreto' }, cfg.secreto)),
         el('p', { class: 'ayuda' }, 'También puedes usar este enlace: ', el('code', { class: 'secreto' }, cfg.uri)), el('label', { class: 'campo' }, el('span', {}, 'Código de 6 dígitos'), codigo),
@@ -302,12 +303,10 @@ async function vSimulacion() {
     if (!s.disponible) { vaciar(z).append(encabezado('Simulación'), aviso('info', 'La simulación no está activa en este servidor (AQ_SIMULACION=0 o dispositivos reales conectados).')); return; }
     const opcion = (accion, texto, valor) => el('label', { class: 'campo-check' }, el('input', { type: 'checkbox', checked: valor, onchange: () => ejecutar(accion) }), ' ', texto);
     vaciar(z).append(encabezado('Simulación de dispositivos AquaBrain'),
-      el('p', { class: 'ayuda' }, 'Cada cultivo tiene su dispositivo virtual. Envían mediciones firmadas al mismo endpoint que usaría un dispositivo físico; para pasar a hardware real solo se pausa la simulación.'),
       el('section', { class: 'panel-form' }, el('h3', {}, 'Provocar una falla del cultivo'),
-        el('p', { class: 'ayuda' }, 'La alerta aparece en segundos y la falla se mantiene hasta que alguien registra «Sí, quedó solucionado» (o se termina aquí). «Sin comunicación» aparece cuando pasan los minutos del parámetro correspondiente.'),
         el('label', { class: 'campo' }, el('span', {}, 'Cultivo / dispositivo'), el('select', { id: 'sim-disp', onchange: (e) => { vSimulacion.disp = e.target.value; e.target.blur(); cargar(); } },
           s.dispositivos.map((d) => el('option', { value: d.codigo, selected: d.codigo === vSimulacion.disp }, `${d.cultivo} · ${d.codigo}`)))),
-        actual ? el('p', { class: 'sim-activa' }, ICO(ICONO_ESCENARIO[actual] || 'alerta-detectada-c', 'ico-btn'), `Falla activa en este equipo: ${etiqueta[actual] || actual}`) : el('p', { class: 'ayuda' }, 'Este equipo funciona con normalidad: elige una falla para provocarla.'),
+        actual ? el('p', { class: 'sim-activa' }, ICO(ICONO_ESCENARIO[actual] || 'alerta-detectada-c', 'ico-btn'), `Falla activa en este equipo: ${etiqueta[actual] || actual}`) : null,
         el('div', { class: 'botones-escenario' }, (s.escenarios || []).map((e) => botonEscenario(e, actual === e.codigo, 'boton-secundario', !s.activa,
           () => ejecutar('escenario', { escenario: e.codigo, dispositivo: vSimulacion.disp }, `Falla provocada: ${e.etiqueta}`))),
           el('button', { type: 'button', class: 'boton', onclick: () => ejecutar('reparar', { dispositivo: vSimulacion.disp }, 'Falla terminada') }, ICO('terminar-falla', 'ico-btn'), 'Terminar la falla'))),

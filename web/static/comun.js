@@ -225,7 +225,6 @@ function accionesAlerta(a, alTerminar, clase = 'boton-secundario') {
       caja.append(t, el('div', { class: 'botones-revision' },
         el('button', { type: 'button', class: `${clase} boton-ok`, onclick: () => revisar(true) }, '✔ Sí, quedó solucionado'),
         el('button', { type: 'button', class: `${clase} boton-mal`, onclick: () => revisar(false) }, '✖ No pude solucionarlo')));
-      if (rol !== 'encargado_cultivo') caja.append(el('div', { class: 'meta suave' }, `Como ${ROL[rol].toLowerCase()} tu revisión es la definitiva: si queda solucionado, la alerta se resuelve de inmediato y queda en la bitácora a tu nombre; si no, sigue abierta.`));
     } else caja.append(el('span', { class: 'meta suave' }, 'En revisión por el encargado.'));
   } else if (a.estado === 'revisada') {                          // ticket de confirmación: lo confirma el encargado; supervisor y administrador, de respaldo
     const propia = a.revision_por && a.revision_por === AQ.usuario.nombre && rol !== 'administrador';
@@ -259,11 +258,106 @@ function avisosAlerta(a, alTerminar, clase) {
 }
 const enlaceMapa = (u) => `https://www.google.com/maps?q=${u.lat},${u.lng}`;
 const enlaceRuta = (u) => `https://www.google.com/maps/dir/?api=1&destination=${u.lat},${u.lng}`;
-/*  Quién está conectado: nombre y rol, siempre visibles en la barra superior (web y app)  */
-const CLASE_ROL = { administrador: 'rol-admin', supervisor: 'rol-sup', encargado_cultivo: 'rol-enc', tecnico: 'rol-tec' };
+
+/*  Seguimiento del técnico hacia el equipo: distancia, tiempo estimado y recorrido con el GPS del teléfono o del navegador.
+    Vive solo en la pantalla (memoria): nada de esto se envía al servidor ni se guarda en la base.
+    Tiempo = distancia en línea recta × FACTOR_RUTA (las calles no son rectas) a la velocidad promedio del modo elegido.  */
+const SEGUIMIENTOS = new Map();                        // id de la orden -> { watch, pos, inicio, rastro, modo, error }
+const VELOCIDAD_KMH = { auto: 30, pie: 5 };
+const FACTOR_RUTA = 1.3;
+const RAD = Math.PI / 180;
+function distanciaM(a, b) {
+  const dLat = (b.lat - a.lat) * RAD, dLng = (b.lng - a.lng) * RAD;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * RAD) * Math.cos(b.lat * RAD) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+function rumboTxt(a, b) {
+  const y = Math.sin((b.lng - a.lng) * RAD) * Math.cos(b.lat * RAD);
+  const x = Math.cos(a.lat * RAD) * Math.sin(b.lat * RAD) - Math.sin(a.lat * RAD) * Math.cos(b.lat * RAD) * Math.cos((b.lng - a.lng) * RAD);
+  const g = (Math.atan2(y, x) / RAD + 360) % 360;
+  return ['norte', 'noreste', 'este', 'sureste', 'sur', 'suroeste', 'oeste', 'noroeste'][Math.round(g / 45) % 8];
+}
+const distTxt = (m) => (m < 1000 ? `${Math.round(m)} m` : `${fmt(m / 1000, m < 10000 ? 1 : 0)} km`);
+const minutosTxt = (v) => (v < 1 ? 'menos de 1 min' : v < 60 ? `${Math.round(v)} min` : `${Math.floor(v / 60)} h ${Math.round(v % 60)} min`);
+function repintarSeguimiento(id) { document.querySelectorAll(`[data-seg="${id}"]`).forEach((n) => n.pintar && n.pintar()); }
+function detenerSeguimiento(id) {
+  const s = SEGUIMIENTOS.get(id);
+  if (s && s.watch != null && navigator.geolocation) navigator.geolocation.clearWatch(s.watch);
+  SEGUIMIENTOS.delete(id); repintarSeguimiento(id);
+}
+function iniciarSeguimiento(id, destino) {
+  const s = SEGUIMIENTOS.get(id) || { modo: 'auto', rastro: [] };
+  s.destino = destino; s.error = null; SEGUIMIENTOS.set(id, s);
+  if (!navigator.geolocation) { s.error = 'Este equipo no entrega su ubicación.'; repintarSeguimiento(id); return; }
+  if (s.watch == null) {
+    s.watch = navigator.geolocation.watchPosition((p) => {
+      const pos = { lat: p.coords.latitude, lng: p.coords.longitude, prec: p.coords.accuracy, t: Date.now() };
+      s.pos = pos; s.error = null;
+      if (s.inicio == null) s.inicio = distanciaM(pos, s.destino);
+      const ult = s.rastro[s.rastro.length - 1];
+      if (!ult || distanciaM(ult, pos) >= 10) { s.rastro.push(pos); if (s.rastro.length > 400) s.rastro.shift(); }
+      if (!document.querySelector(`[data-seg="${id}"]`)) {          // se salió de la orden: se apaga sola al minuto
+        s.fuera = s.fuera || Date.now();
+        if (Date.now() - s.fuera > 60000) { detenerSeguimiento(id); return; }
+      } else s.fuera = null;
+      repintarSeguimiento(id);
+    }, (e) => {
+      s.error = e.code === 1 ? 'Sin permiso para usar tu ubicación.' : 'No se pudo obtener tu ubicación (sin señal GPS).';
+      if (e.code === 1) { navigator.geolocation.clearWatch(s.watch); s.watch = null; }
+      repintarSeguimiento(id);
+    }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+  }
+  repintarSeguimiento(id);
+}
+/* Dibujo del recorrido: el equipo, tu posición, el camino que llevas y la línea que falta (proyección local en metros). */
+function croquisSeguimiento(rastro, pos, destino) {
+  const W = 320, H = 170, pad = 22, ns = 'http://www.w3.org/2000/svg';
+  const n = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt != null) e.textContent = txt; return e; };
+  const xy = (p) => [(p.lng - destino.lng) * 111320 * Math.cos(destino.lat * RAD), (p.lat - destino.lat) * 110540];
+  const pts = [...rastro, pos].map(xy), todos = [...pts, [0, 0]];
+  const xs = todos.map((p) => p[0]), ys = todos.map((p) => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const esc = Math.min((W - 2 * pad) / Math.max(maxX - minX, 1), (H - 2 * pad) / Math.max(maxY - minY, 1));
+  const cx = (W - (maxX - minX) * esc) / 2, cy = (H - (maxY - minY) * esc) / 2;
+  const P = ([x, y]) => [cx + (x - minX) * esc, H - (cy + (y - minY) * esc)];
+  const svg = n('svg', { viewBox: `0 0 ${W} ${H}`, class: 'seg-croquis', role: 'img', 'aria-label': 'Recorrido hacia el equipo' });
+  const [dx, dy] = P([0, 0]), [px, py] = P(pts[pts.length - 1]);
+  svg.append(n('line', { x1: px, y1: py, x2: dx, y2: dy, class: 'seg-falta' }));
+  if (pts.length > 1) svg.append(n('polyline', { points: pts.map((p) => P(p).join(',')).join(' '), class: 'seg-rastro' }));
+  if (pts.length > 1) { const [sx, sy] = P(pts[0]); svg.append(n('circle', { cx: sx, cy: sy, r: 4, class: 'seg-inicio' })); }
+  svg.append(n('circle', { cx: dx, cy: dy, r: 9, class: 'seg-equipo' }), n('text', { x: dx, y: dy - 13, 'text-anchor': 'middle', class: 'seg-etq' }, 'Equipo'),
+    n('circle', { cx: px, cy: py, r: 7, class: 'seg-yo' }), n('text', { x: px, y: py + 20, 'text-anchor': 'middle', class: 'seg-etq' }, 'Tú'),
+    n('text', { x: W - 8, y: 14, 'text-anchor': 'end', class: 'seg-norte' }, 'N ↑'));
+  return svg;
+}
+function panelSeguimiento(id, destino) {
+  const caja = el('div', { class: 'seg', 'data-seg': id });
+  caja.pintar = () => {
+    const s = SEGUIMIENTOS.get(id);
+    if (!s) { vaciar(caja).append(el('button', { type: 'button', class: 'ot-btn primario', onclick: () => iniciarSeguimiento(id, destino) }, ICO('va-en-camino', 'ico-btn'), 'Seguir mi recorrido al equipo')); return; }
+    const modo = el('div', { class: 'segmento seg-modo' }, [['auto', 'En vehículo'], ['pie', 'A pie']].map(([m, t]) =>
+      el('button', { type: 'button', class: s.modo === m ? 'activo' : '', onclick: () => { s.modo = m; caja.pintar(); } }, t)));
+    const pie = el('div', { class: 'seg-pie' }, modo, el('button', { type: 'button', class: 'ot-btn texto', onclick: () => detenerSeguimiento(id) }, 'Detener'));
+    if (s.error) { vaciar(caja).append(aviso('error', s.error), el('button', { type: 'button', class: 'ot-btn', onclick: () => iniciarSeguimiento(id, destino) }, 'Reintentar'), pie); return; }
+    if (!s.pos) { vaciar(caja).append(el('p', { class: 'suave' }, 'Buscando tu ubicación…'), pie); return; }
+    const d = distanciaM(s.pos, destino), llego = d <= Math.max(50, Math.min(s.pos.prec || 0, 150));
+    const minutos = ((d * FACTOR_RUTA) / 1000 / VELOCIDAD_KMH[s.modo]) * 60, avance = s.inicio ? Math.max(0, Math.min(1, 1 - d / s.inicio)) : 0;
+    const llegada = new Date(Date.now() + minutos * 60000).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+    const cifra = (t, v) => el('div', { class: 'seg-cifra' }, el('span', {}, t), el('strong', {}, v));
+    vaciar(caja).append(
+      el('div', { class: 'seg-cifras' }, cifra('Distancia', distTxt(d)), cifra('Tiempo', llego ? 'Llegaste' : minutosTxt(minutos)), cifra('Llegada aprox.', llego ? '—' : llegada)),
+      el('div', { class: 'seg-barra', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(avance * 100)) },
+        el('span', { style: { width: `${Math.round(avance * 100)}%` } })),
+      croquisSeguimiento(s.rastro, s.pos, destino),
+      el('p', { class: 'suave seg-dato' }, llego ? 'Estás en el lugar del equipo.' : `El equipo está al ${rumboTxt(s.pos, destino)} · tu GPS ±${Math.round(s.pos.prec || 0)} m`), pie);
+  };
+  caja.pintar();
+  return caja;
+}
+/*  Quién está conectado: solo su nombre, en la barra superior (web y app); el rol queda en el texto de ayuda al pasar el cursor  */
 function barraUsuario(clase = 'barra-usuario') {
   const u = AQ.usuario;
-  return el('div', { class: clase, title: `${u.nombre} · ${ROL[u.rol] || u.rol}` }, el('span', { class: `rol-chip ${CLASE_ROL[u.rol] || ''}` }, ROL[u.rol] || u.rol), el('strong', { class: 'barra-nombre' }, u.nombre));
+  return el('div', { class: clase, title: `${u.nombre} · ${ROL[u.rol] || u.rol}` }, el('strong', { class: 'barra-nombre' }, u.nombre));
 }
 /* Pantalla de error con su número (403: sin permiso, 404: no existe…) dentro de la interfaz. */
 const TEXTOS_ERROR = { 401: ['Acceso no autorizado', 'Debes iniciar sesión para ver esto.'], 403: ['Acceso denegado', 'Tu rol no tiene permiso para entrar a esta sección.'],
@@ -285,8 +379,7 @@ async function pedirTecnico({ dispositivo_id = null, alerta = null, alTerminar =
   const cerrar = () => { AQ.editando = false; fondo.remove(); };
   fondo.addEventListener('click', (e) => { if (e.target === fondo) cerrar(); });
   document.body.append(fondo);
-  const cabecera = el('div', { class: 'modal-cab' }, ICO('servicio-tecnico', 'ico-modal'), el('div', {}, el('h3', {}, 'Pedir un técnico'),
-    el('p', { class: 'suave' }, 'El técnico recibe un aviso con el motivo, dónde está el equipo y cómo llegar.')), el('button', { type: 'button', class: 'modal-x', 'aria-label': 'Cerrar', onclick: cerrar }, '✕'));
+  const cabecera = el('div', { class: 'modal-cab' }, ICO('servicio-tecnico', 'ico-modal'), el('div', {}, el('h3', {}, 'Pedir un técnico')), el('button', { type: 'button', class: 'modal-x', 'aria-label': 'Cerrar', onclick: cerrar }, '✕'));
   vaciar(cuerpo).append(cabecera, el('p', { class: 'suave' }, 'Cargando equipos…'));
   try {
     const zonaForm = el('div', {}), terminar = async (m) => { cerrar(); await alTerminar(m); };
@@ -349,9 +442,9 @@ function ordenTrabajo(m, alTerminar) {
     el('p', { class: 'ot-lugar' }, [m.instalacion, m.cultivo].filter(Boolean).join(' · ') || 'Sin instalación'),
     el('p', { class: 'suave' }, `Dispositivo ${m.dispositivo || '—'}${m.dispositivo_nombre ? ` (${m.dispositivo_nombre})` : ''}${CONEXION_TXT[m.estado_conexion] ? ` · ${CONEXION_TXT[m.estado_conexion]}` : ''}`),
     m.direccion ? el('p', {}, `Dirección: ${m.direccion}`) : null,
-    u ? el('div', { class: 'ot-botones' }, el('a', { class: 'ot-btn primario', href: enlaceRuta(u), target: '_blank', rel: 'noopener' }, ICO('ubicacion', 'ico-btn'), 'Cómo llegar'),
-      el('a', { class: 'ot-btn', href: enlaceMapa(u), target: '_blank', rel: 'noopener' }, ICO('ver-maps', 'ico-btn'), 'Ver en Google Maps'))
-      : el('p', { class: 'suave' }, 'El equipo todavía no informó su posición: guíate por la dirección.'),
+    u && abierta && m.estado === 'en_curso' ? panelSeguimiento(m.id, u) : null,
+    u ? el('div', { class: 'ot-botones' }, el('a', { class: 'ot-btn', href: enlaceRuta(u), target: '_blank', rel: 'noopener' }, ICO('ver-maps', 'ico-btn'), 'Ver en Google Maps'))
+      : el('p', { class: 'suave' }, 'Sin posición GPS del equipo.'),
     u ? el('p', { class: 'suave' }, `Posición ${u.origen === 'manual' ? 'indicada a mano' : 'del GPS'}, ${hace(u.actualizada_en)}.`) : null);
   const nodo = el('article', { class: `ot ${m.estado}`, id: `ot-${m.id}` }, cabecera, pasos, porque, donde);
   if (!abierta) return nodo.append(informeVisita(m)), nodo;
@@ -368,8 +461,8 @@ function ordenTrabajo(m, alTerminar) {
     return nodo;
   }
   const prog = m.progreso || 'aceptada';
-  const siguiente = prog === 'aceptada' ? btn('Voy en camino', () => mover({ progreso: 'en_camino' }, 'Avisaste que vas en camino'), 'primario grande', 'ubicacion')
-    : prog === 'en_camino' ? btn('Ya llegué al equipo', () => mover({ progreso: 'en_sitio' }, 'Avisaste que llegaste'), 'primario grande', 'dispositivos') : null;
+  const siguiente = prog === 'aceptada' ? btn('Voy en camino', () => { if (u) iniciarSeguimiento(m.id, u); mover({ progreso: 'en_camino' }, 'Avisaste que vas en camino'); }, 'primario grande', 'ubicacion')
+    : prog === 'en_camino' ? btn('Ya llegué al equipo', () => { detenerSeguimiento(m.id); mover({ progreso: 'en_sitio' }, 'Avisaste que llegaste'); }, 'primario grande', 'dispositivos') : null;
   const diag = el('textarea', { rows: 3, maxlength: 600, placeholder: 'Qué encontraste (causa de la falla)', oninput: edita });
   const trabajo = el('textarea', { rows: 3, maxlength: 500, placeholder: 'Qué hiciste para resolverlo', oninput: edita });
   const res = el('select', {}, el('option', { value: '' }, 'Cómo quedó…'), RESOLUCIONES.map(([v, t]) => el('option', { value: v }, t)));
@@ -382,6 +475,7 @@ function ordenTrabajo(m, alTerminar) {
     if (!res.value) { mostrarAviso('Indica cómo quedó el equipo.', 'error'); res.focus(); return; }
     const minutos = min.value === '' ? null : Number(min.value);
     if (minutos !== null && !(Number.isInteger(minutos) && minutos >= 0 && minutos <= 1440)) { mostrarAviso('Los minutos deben ser un número entero entre 0 y 1440.', 'error'); min.focus(); return; }
+    detenerSeguimiento(m.id);
     mover({ estado: 'completada', diagnostico: diag.value.trim(), nota: trabajo.value.trim(), resolucion: res.value, repuestos: rep.value.trim(),
       ...(rec.value.trim() ? { recomendacion: rec.value.trim() } : {}), ...(minutos !== null ? { minutos } : {}) }, 'Informe enviado: la visita quedó cerrada');
   };
@@ -397,9 +491,9 @@ function ordenTrabajo(m, alTerminar) {
 function cajaMantencion(m, alTerminar, clase = 'boton-secundario') {
   if (AQ.usuario.rol === 'tecnico') return ordenTrabajo(m, alTerminar);
   const abierta = ['pendiente', 'en_curso'].includes(m.estado), rol = AQ.usuario.rol, esTec = rol === 'tecnico', jefe = ['supervisor', 'administrador'].includes(rol);
-  const enlaces = m.ubicacion ? el('div', { class: 'enlaces-mapa' }, el('a', { href: enlaceMapa(m.ubicacion), target: '_blank', rel: 'noopener' }, '📍 Ver en Google Maps'), ' · ',
-    el('a', { href: enlaceRuta(m.ubicacion), target: '_blank', rel: 'noopener' }, 'Cómo llegar'), el('span', { class: 'suave' }, ` · posición ${m.ubicacion.origen === 'manual' ? 'indicada a mano' : 'del GPS'}, ${hace(m.ubicacion.actualizada_en)}`))
-    : (m.dispositivo ? el('div', { class: 'meta suave' }, 'Este dispositivo todavía no ha informado su posición.') : null);
+  const enlaces = m.ubicacion ? el('div', { class: 'enlaces-mapa' }, el('a', { href: enlaceMapa(m.ubicacion), target: '_blank', rel: 'noopener' }, '📍 Ver en Google Maps'),
+    el('span', { class: 'suave' }, ` · posición ${m.ubicacion.origen === 'manual' ? 'indicada a mano' : 'del GPS'}, ${hace(m.ubicacion.actualizada_en)}`))
+    : (m.dispositivo ? el('div', { class: 'meta suave' }, 'Sin posición GPS.') : null);
   const caja = el('div', { class: `mantencion ${m.estado}` },
     el('div', { class: 'mantencion-cab' }, el('strong', {}, `🔧 ${m.tipo_texto}`), el('span', {}, el('span', { class: 'etiqueta m-accion' }, m.accion_texto || ''), ' ', el('span', { class: `etiqueta m-${m.estado}` }, m.estado_texto))),
     m.dispositivo ? el('div', { class: 'meta' }, [m.instalacion, m.cultivo, m.dispositivo ? `Dispositivo ${m.dispositivo}` : null].filter(Boolean).join(' · '), m.direccion ? el('div', { class: 'suave' }, `Dirección: ${m.direccion}`) : null) : null,
@@ -718,7 +812,7 @@ async function seccionEquipos() {
   }
   await cargar();
   return el('section', { class: 'panel-form tarjeta' }, el('h3', {}, 'Equipos vinculados'),
-    el('p', { class: 'ayuda nota' }, 'Cada vez que ingresas, este celular o navegador queda vinculado a tu cuenta. Aquí ves dónde la usas y puedes desvincular un equipo que ya no uses.'), msg, zona);
+    msg, zona);
 }
 
 /*  sesión  */

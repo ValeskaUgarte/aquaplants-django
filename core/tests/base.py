@@ -14,9 +14,17 @@ from core.util import ms_a_iso
 from core.vistas import operacion
 
 
+VARIABLES_EXTRA = ("caudal", "nivel_agua", "amoniaco", "temperatura_ambiente")
+
+
 class Base(SimpleTestCase):
     """Cada prueba parte de una base vacía + datos de demostración, sobre el servidor RTDB local (el mismo cliente REST
-    que se usa contra Firebase)."""
+    que se usa contra Firebase).
+
+    Por defecto cada cultivo muestra solo las variables de su tabla del informe. Las pruebas del motor de alertas usan el caudal
+    y el nivel de agua como fallas de ejemplo, así que la preparación los vuelve a mostrar (lo mismo que haría un administrador en
+    «Variables que muestra»). Las pruebas que verifican el comportamiento por defecto ponen variables_extra = False."""
+    variables_extra = True
 
     @classmethod
     def setUpClass(cls):
@@ -41,6 +49,19 @@ class Base(SimpleTestCase):
         self.pw = {c["rol"]: c["password"] for c in self.cred}
         self.correo = {c["rol"]: c["email"] for c in self.cred}
         self.por_cultivo = {d["cultivo"]: d for d in self.disp}                   # un dispositivo por cultivo
+        if self.variables_extra:
+            self.mostrar_variables_extra()
+
+    def mostrar_variables_extra(self):
+        mapa, sensores = {}, rtdb().get("sensores") or {}
+        for cid in (rtdb().get("cultivos") or {}):
+            for v in VARIABLES_EXTRA:
+                mapa[f"cultivos/{cid}/variables/{v}"] = True
+        for rid, r in (rtdb().get("reglas") or {}).items():
+            if not r.get("activa") and (sensores.get(r.get("sensor_id")) or {}).get("tipo_sensor_id") in VARIABLES_EXTRA:
+                mapa[f"reglas/{rid}/activa"] = True
+        rtdb().update(mapa)
+        repo.invalidar(); operacion.invalidar_micro()
 
     # --- sesión
     def entrar(self, rol="administrador", host=None):

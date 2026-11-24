@@ -41,7 +41,6 @@ async function secUsuarios(z) {
   };
   const nombresDisp = (ids) => ids.map((id) => { const d = disp.find((x) => x.id === id); return d ? `${d.cultivo_nombre || 'Sin cultivo'} · ${d.codigo}` : null; }).filter(Boolean);
   m.cuerpo.append(el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevo }, 'Nuevo usuario')),
-    el('p', { class: 'ayuda' }, 'Registro de personas con acceso. Suspender impide entrar pero conserva todo; eliminar cierra la cuenta para siempre (se conserva el nombre en el historial). Vincula a cada persona con los dispositivos que tiene a cargo: sus alertas le llegan a ella.'),
     tabla([{ titulo: 'Nombre', campo: 'nombre' }, { titulo: 'Correo', campo: 'email' }, { titulo: 'Rol', ver: (f) => ROL[f.rol] },
       { titulo: 'Estado', ver: (f) => (f.activo ? 'Activo' : [el('strong', { class: 'alerta-n' }, 'Suspendido'), f.suspension ? el('div', { class: 'meta suave' }, `${f.suspension.motivo || 'sin motivo'}${f.suspension.por ? ` · por ${f.suspension.por}` : ''}`) : null]) },
       { titulo: '2FA', ver: (f) => (f.totp_activo ? 'Sí' : 'No') },
@@ -89,7 +88,6 @@ async function secCultivos(z) {
       catch (e) { vaciar(msg).append(aviso('error', mensajeError(e))); }
     };
     m.mostrarForm(el('form', { class: 'panel-form tarjeta', onsubmit: guardar }, el('h3', {}, `Variables que muestra ${c.nombre}`),
-      el('p', { class: 'ayuda' }, 'Solo las marcadas aparecen en los paneles de este cultivo (web y app móvil) y generan alertas. Las mediciones de las demás se siguen guardando.'),
       el('div', { class: 'lista-casillas' }, casillas), el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'submit' }, 'Guardar variables'),
         el('button', { class: 'boton-secundario', type: 'button', onclick: m.cerrarForm }, 'Cancelar')), msg));
   };
@@ -101,8 +99,7 @@ async function secCultivos(z) {
   const nuevaP = (c) => m.mostrarForm(formulario({ textoBoton: `Agregar planta a ${c.nombre}`, onCancelar: m.cerrarForm, campos: [
     { nombre: 'codigo', etiqueta: 'Código', tipo: 'text', requerido: true }, { nombre: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true }],
     onEnviar: async (d) => { await api.post('/plantas', { ...d, cultivo_id: c.id }); await recargar(); } }));
-  m.cuerpo.append(el('p', { class: 'ayuda' }, 'Cada cultivo se monitorea con UN dispositivo. Primero crea el cultivo y luego registra su dispositivo en «Dispositivos y sensores».'),
-    el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevoC }, 'Nuevo cultivo')),
+  m.cuerpo.append(el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevoC }, 'Nuevo cultivo')),
     ...cultivos.map((c) => { const d = disp.find((x) => x.cultivo_id === c.id); return el('section', { class: 'bloque' },
       el('h3', {}, c.nombre, el('small', {}, ` (${nombreDe(insts, c.instalacion_id)}) · ${d ? `dispositivo ${d.codigo}` : 'SIN dispositivo asignado'}`)),
       el('p', { class: 'ayuda' }, `Variables: ${resumenVariables(c)}.`),
@@ -167,8 +164,7 @@ async function secDispositivos(z) {
     });
     pintar(); m.mostrarForm(form);
   };
-  m.cuerpo.append(secretoZona, el('p', { class: 'ayuda' }, 'Regla del proyecto: un dispositivo por cultivo. Los sensores de un dispositivo miden el cultivo al que pertenece.'),
-    el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevoD, disabled: !libres.length, title: libres.length ? '' : 'Todos los cultivos ya tienen dispositivo' }, 'Nuevo dispositivo'),
+  m.cuerpo.append(secretoZona, el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevoD, disabled: !libres.length, title: libres.length ? '' : 'Todos los cultivos ya tienen dispositivo' }, 'Nuevo dispositivo'),
       el('button', { class: 'boton-secundario', type: 'button', onclick: nuevoS, disabled: !disp.length }, 'Nuevo sensor (varias variables a la vez)')),
     el('h3', {}, 'Dispositivos'),
     tabla([{ titulo: 'Cultivo', ver: (f) => el('strong', {}, f.cultivo_nombre || '—') }, { titulo: 'Dispositivo', ver: (f) => `${f.codigo} · ${f.nombre}` }, { titulo: 'Instalación', ver: (f) => nombreDe(insts, f.instalacion_id) },
@@ -196,8 +192,7 @@ async function secTipos(z) {
     { nombre: 'tipo_variable', etiqueta: 'Tipo de variable', tipo: 'text', requerido: true }, { nombre: 'unidad', etiqueta: 'Unidad', tipo: 'text', requerido: true },
     { nombre: 'valor_min', etiqueta: 'Límite mínimo', tipo: 'number' }, { nombre: 'valor_max', etiqueta: 'Límite máximo', tipo: 'number' }],
     onEnviar: async (d) => { await api.post('/tipos-sensor', d); await recargar(); } }));
-  m.cuerpo.append(el('p', { class: 'ayuda' }, 'Los límites de validación son opcionales: una medición fuera de ellos se rechaza como dato erróneo.'),
-    el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevo }, 'Nuevo tipo de sensor')),
+  m.cuerpo.append(el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nuevo }, 'Nuevo tipo de sensor')),
     tabla([{ titulo: 'Código', campo: 'codigo' }, { titulo: 'Nombre', campo: 'nombre' }, { titulo: 'Variable', campo: 'tipo_variable' }, { titulo: 'Unidad', campo: 'unidad' },
       { titulo: 'Mínimo', num: true, ver: (f) => fmt(f.valor_min) }, { titulo: 'Máximo', num: true, ver: (f) => fmt(f.valor_max) }], datos));
 }
@@ -214,8 +209,7 @@ async function secReglas(z) {
     { nombre: 'umbral', etiqueta: 'Umbral', tipo: 'number', requerido: true },
     { nombre: 'severidad', etiqueta: 'Severidad', tipo: 'select', opciones: [{ valor: 'advertencia', texto: 'Advertencia' }, { valor: 'emergencia', texto: 'Emergencia' }] }],
     onEnviar: async (d) => { await api.post('/reglas-alerta', d); await recargar(); } }));
-  m.cuerpo.append(el('p', { class: 'ayuda' }, 'Solo el Administrador define los umbrales. Una alerta se abre cuando una medición cumple la regla y se resuelve cuando deja de cumplirla. Elige un sensor o un tipo (solo uno).'),
-    el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nueva }, 'Nueva regla')),
+  m.cuerpo.append(el('div', { class: 'acciones' }, el('button', { class: 'boton', type: 'button', onclick: nueva }, 'Nueva regla')),
     tabla([{ titulo: 'Nombre', campo: 'nombre' }, { titulo: 'Aplica a', ver: (f) => (f.sensor_id ? etiquetaSensor(sens.find((s) => s.id === f.sensor_id) || {}) : `Todos los sensores de «${f.tipo_nombre}»`) },
       { titulo: 'Condición', ver: (f) => `${f.operador} ${f.umbral}` }, { titulo: 'Severidad', ver: (f) => (f.severidad === 'emergencia' ? 'Emergencia' : 'Advertencia') },
       { titulo: 'Estado', ver: (f) => (f.activa ? 'Activa' : 'Inactiva') },
@@ -239,8 +233,7 @@ async function secParametros(z) {
 async function secManual(z) {
   const m = marco(z), sens = await api.get('/sensores?todos=1');
   const f = { sensor_id: '', valor: '', timestamp: '' };
-  const form = el('form', { class: 'panel-form' }, el('p', { class: 'ayuda' }, 'Registra una medición a mano (origen «manual»). Se valida y evalúa contra las reglas igual que una medición de dispositivo.'),
-    el('label', { class: 'campo' }, el('span', {}, 'Cultivo · dispositivo · variable'), el('select', { required: true, onchange: (e) => { f.sensor_id = e.target.value; } }, el('option', { value: '' }, 'Selecciona…'),
+  const form = el('form', { class: 'panel-form' }, el('label', { class: 'campo' }, el('span', {}, 'Cultivo · dispositivo · variable'), el('select', { required: true, onchange: (e) => { f.sensor_id = e.target.value; } }, el('option', { value: '' }, 'Selecciona…'),
       sens.map((s) => el('option', { value: s.id }, `${s.cultivo_nombre || 'Sin cultivo'} · ${s.dispositivo_codigo} · ${s.tipo_nombre} (${s.unidad})`)))),
     el('label', { class: 'campo' }, el('span', {}, 'Valor'), el('input', { type: 'number', step: 'any', required: true, oninput: (e) => { f.valor = e.target.value; } })),
     el('label', { class: 'campo' }, el('span', {}, 'Fecha y hora (opcional)'), el('input', { type: 'datetime-local', oninput: (e) => { f.timestamp = e.target.value; } }), el('small', { class: 'ayuda' }, 'Si se omite se usa el momento actual.')),
@@ -285,7 +278,6 @@ async function secSeguimiento(z) {
   async function cargar() {
     const d = await api.get('/seguimiento-alertas'), c = d.conteo;
     vaciar(cuerpo).append(
-      el('p', { class: 'ayuda' }, 'Cada alerta pasa por: activa → reconocida (alguien va a revisar) → revisada (el encargado comenta) → resuelta (el supervisor o el administrador confirma). Si quien revisa es el supervisor o el administrador, su revisión es la definitiva y queda resuelta de inmediato. Si el valor vuelve a la normalidad antes de que alguien la atienda, se resuelve sola y queda en el historial.'),
       el('dl', { class: 'indicadores' }, [['Nadie ha ido a revisar', c.activa], ['En revisión por el encargado', c.reconocida], ['Falta confirmar (supervisor)', c.revisada], ['Resueltas en 24 h', c.resueltas_24h]]
         .map(([k, v]) => el('div', {}, el('dt', {}, k), el('dd', {}, v)))),
       el('h3', {}, `Sin resolver (${d.pendientes.length})`),
@@ -344,12 +336,11 @@ async function secInformes(z) {
   const boton = el('button', { class: 'boton', type: 'submit' }, 'Descargar informe');
   const verTrab = el('button', { class: 'boton-secundario', type: 'button' }, 'Ver desempeño en pantalla');
   const form = el('form', { class: 'informe' },
-    el('p', { class: 'ayuda' }, 'Elige qué informe quieres, el período y los filtros. Las horas salen en hora de Santiago.'),
     el('div', { class: 'card-informe' }, el('h4', {}, '1 · Qué informe necesitas'), tarjetas),
     el('div', { class: 'card-informe periodo' }, el('h4', {}, '2 · Período'), el('div', { class: 'rejilla-campos' }, campo('Desde', inDesde), campo('Hasta (incluido)', inHasta)),
       el('div', { class: 'rapidos' }, rapidos.map(([t, fn]) => el('button', { type: 'button', class: 'boton-texto', onclick: fn }, t)))),
     zonaOpciones,
-    el('div', { class: 'barra-descarga' }, el('span', { class: 'suave' }, 'Tus filtros se aplican a todas las hojas del archivo.'), el('span', { class: 'acciones' }, verTrab, boton)));
+    el('div', { class: 'barra-descarga' }, el('span', { class: 'acciones' }, verTrab, boton)));
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); boton.disabled = true; boton.textContent = 'Generando…'; vaciar(m.msg);
     try {
@@ -390,8 +381,7 @@ function tablaTrabajadores(d) {
 /*  Equipos vinculados (administrador)  */
 async function secEquipos(z) {
   const m = marco(z), datos = await api.get('/equipos'), recargar = () => secEquipos(z);
-  m.cuerpo.append(el('p', { class: 'ayuda' }, 'Celulares y navegadores desde los que cada persona ingresó. Al revocar un equipo se cierran sus sesiones y no podrá volver a vincularse hasta que lo reactives.'),
-    tabla([{ titulo: 'Persona', ver: (f) => [el('strong', {}, f.usuario || '—'), el('div', { class: 'meta suave' }, `${f.email || ''} · ${ROL[f.rol] || ''}`)] }, { titulo: 'Equipo', campo: 'nombre' },
+  m.cuerpo.append(tabla([{ titulo: 'Persona', ver: (f) => [el('strong', {}, f.usuario || '—'), el('div', { class: 'meta suave' }, `${f.email || ''} · ${ROL[f.rol] || ''}`)] }, { titulo: 'Equipo', campo: 'nombre' },
       { titulo: 'Tipo', ver: (f) => (f.plataforma === 'android' ? 'App Android' : 'Navegador') }, { titulo: 'Vinculado', ver: (f) => fechaHora(f.creado_en) }, { titulo: 'Último uso', ver: (f) => fechaHora(f.ultimo_uso) },
       { titulo: 'Avisos push', ver: (f) => (f.con_push ? 'Sí' : 'No') }, { titulo: 'Estado', ver: (f) => (f.revocado ? 'Revocado' : 'Activo') },
       { titulo: '', ver: (f) => (f.revocado ? botonTexto('Reactivar', accion(m, () => api.post(`/equipos/${f.id}/reactivar`), 'Equipo reactivado.', recargar))
@@ -404,8 +394,7 @@ async function secMantenciones(z) {
   const filtro = z.dataset.filtroMant || 'abiertas', datos = await api.get(`/mantenciones${qs({ estado: filtro })}`);
   const sel = el('select', { onchange: (e) => { z.dataset.filtroMant = e.target.value; recargar(); } }, [['abiertas', 'Abiertas (pendientes y en curso)'], ['', 'Todas'], ['completada', 'Realizadas'], ['cancelada', 'Canceladas']]
     .map(([v, t]) => el('option', { value: v, selected: v === filtro }, t)));
-  m.cuerpo.append(el('p', { class: 'ayuda' }, 'Órdenes de mantención creadas al derivar una alerta (visita de técnico, cambio de batería o de dispositivo…). Quien las atiende registra qué hizo; si el dispositivo vuelve a informar valores normales, la alerta se resuelve sola.'),
-    el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar'), sel),
+  m.cuerpo.append(el('label', { class: 'campo filtro-sensores' }, el('span', {}, 'Mostrar'), sel),
     datos.length ? el('div', { class: 'lista-mantenciones' }, datos.map((x) => el('article', { class: 'card-informe' },
       el('div', { class: 'meta suave' }, `${x.instalacion || ''} · ${x.cultivo || '—'} · ${x.dispositivo || '—'}`), cajaMantencion(x, recargar, 'boton-secundario'),
       el('a', { class: 'boton-texto', href: '#/alertas' }, 'Ver la alerta'))))
