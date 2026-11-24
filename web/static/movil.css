@@ -299,3 +299,5 @@ input.corto { width:7rem; padding:.5rem .6rem; }
 .dato .ref { font-size:.7rem; color:var(--suave); margin-top:.15rem; }
 .cultivo-t .btn-pedir-tec { margin-top:.5rem; }
 .pedir-rapido { margin:1rem 0 .4rem; }
+
+.meta.resuelta-en { color:#14663a; font-weight:600; }

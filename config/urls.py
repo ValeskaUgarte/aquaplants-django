@@ -39,6 +39,7 @@ urlpatterns = [
     path("api/sensores/<str:pk>", catalogo.sensor_detalle),
     path("api/reglas-alerta", catalogo.reglas),
     path("api/reglas-alerta/<str:pk>", catalogo.regla_detalle),
+    path("api/respaldos", catalogo.respaldos),
     path("api/parametros", catalogo.parametros),
     path("api/parametros/<str:clave>", catalogo.parametro_detalle),
 

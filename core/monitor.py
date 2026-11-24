@@ -109,3 +109,8 @@ def ciclo():
         depurar()
     except Exception:  # noqa: BLE001
         log.exception("fallo en tarea periódica")
+    try:
+        from core import respaldo
+        respaldo.automatico()
+    except Exception:  # noqa: BLE001
+        log.exception("fallo al programar el respaldo")

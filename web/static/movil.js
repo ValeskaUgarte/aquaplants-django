@@ -162,6 +162,7 @@ function tarjetaAlerta(a, alTerminar) {
   return el('div', { id: `al-${a.id}`, class: `tarjeta alerta ${a.tipo === 'sin_comunicacion' ? 'critica' : ''} ${a.estado}` },
     el('div', { class: 'fila' }, el('h3', {}, iconoProblema(a, 'grande'), tituloAlerta(a)), el('span', { class: `chip ${a.estado}` }, ETIQUETA[a.estado] || a.estado)),
     el('div', { class: 'meta' }, `${a.cultivo || a.instalacion} · ${[a.dispositivo_codigo, a.sensor_codigo].filter(Boolean).join(' · ')} · ${fechaHora(a.creada_en)}`),
+    a.resuelta_en ? el('div', { class: 'meta resuelta-en' }, `✔ Resuelta el ${fechaHora(a.resuelta_en)}${a.resuelta_auto ? ' (sola)' : ''}`) : null,
     el('div', { class: 'msg' }, a.mensaje),
     a.solucion_cuestionada && a.estado !== 'resuelta' ? el('span', { class: 'chip cuestionada' }, 'Solución cuestionada') : null,
     a.mantencion ? el('span', { class: `chip m-${a.mantencion.estado}` }, `Mantención: ${a.mantencion.estado_texto.toLowerCase()}`) : null,
@@ -258,7 +259,7 @@ function vMas() {
     ['usuarios', 'Usuarios', 'Crear usuarios, cambiar rol, instalaciones asignadas, activar o desactivar.', hUsuarios, esAdmin()],
     ['reglas-alerta', 'Reglas de alerta', 'Umbrales de cada cultivo: cambiar el valor o desactivar una regla.', hReglas, esAdmin()],
     ['instalaciones', 'Instalaciones y cultivos', 'Crear y activar o desactivar instalaciones y cultivos.', hInstalaciones, esAdmin()],
-    ['parametros', 'Parámetros', 'Minutos sin comunicación y retención de históricos.', hParametros, esAdmin()],
+    ['parametros', 'Parámetros', 'Respaldo y espacio de la base, retención de históricos.', hParametros, esAdmin()],
     ['equipos-vinculados', 'Equipos vinculados', 'Celulares y navegadores de cada usuario; revocar o reactivar.', hEquipos, esAdmin()],
     ['auditoria', 'Auditoría', 'Registro de todas las acciones del sistema.', hAuditoria, esAdmin()],
     ['informes', 'Informes', 'Descargar Excel o CSV de mediciones, alertas y eventos.', hInformes, esAdmin()],
@@ -427,8 +428,8 @@ async function hInstalaciones(cuerpo, h) {
 }
 
 async function hParametros(cuerpo, h) {
-  const ps = await api.get('/parametros');
-  vaciar(cuerpo).append(...ps.map((p) => {
+  const [ps, resp] = await Promise.all([api.get('/parametros'), api.get('/respaldos')]);
+  vaciar(cuerpo).append(bloqueRespaldo(resp, () => accion(() => api.post('/respaldos', {}), 'Respaldo iniciado: tarda unos segundos.', () => setTimeout(h.recargar, 4000))), ...ps.map((p) => {
     const v = el('input', { type: 'number', min: 0, value: p.valor, class: 'corto' });
     return el('div', { class: 'tarjeta' }, el('strong', {}, p.clave.replace(/_/g, ' ')), el('div', { class: 'nota' }, p.descripcion),
       el('div', { class: 'fila' }, v, el('button', { class: 'boton chico', type: 'button', onclick: () => accion(() => api.put(`/parametros/${p.clave}`, { valor: String(v.value) }), 'Parámetro guardado', h.recargar) }, 'Guardar')));

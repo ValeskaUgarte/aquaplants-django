@@ -33,6 +33,8 @@ BASE = {"caudal": 2.5, "consumo_hidrico": 0.4, "nutrientes": 800, "fotoperiodo":
 # Fallas demostrables del cultivo: cada escenario cambia los sensores afectados (valor = f(nivel normal del cultivo)).
 # Cada una dispara UNA alerta clara (los sensores relacionados se mueven, pero sin salir de su rango).
 # Duran hasta que alguien da la solución (o hasta que se cumple su tiempo), como pasaría con una falla real.
+# Ninguna se arregla sola antes de DURACION_FALLA_SEG (10 minutos): así hay tiempo de ver la alerta y atenderla.
+DURACION_FALLA_SEG = 600
 ESCENARIOS = {
     "agua_emergencia":   {"etiqueta": "Emergencia de agua (estanque casi vacío, ≤5 %)", "cambios": {"nivel_agua": lambda b: 4, "caudal": lambda b: b * 0.75}},
     "falta_agua":        {"etiqueta": "Falta de agua (estanque bajo)", "cambios": {"nivel_agua": lambda b: 18, "caudal": lambda b: b * 0.75}},
@@ -120,10 +122,11 @@ class DispositivoSimulado:
 
 
     """Provoca una falla concreta del cultivo (falta de agua, gases, pH...). Dura hasta que alguien da la solución
-    (ver `reparar`) o hasta que pasan `segundos`."""
-    def provocar_escenario(self, nombre, segundos=1800):
+    (ver `reparar`) o hasta que pasan `segundos` (nunca menos de DURACION_FALLA_SEG)."""
+    def provocar_escenario(self, nombre, segundos=DURACION_FALLA_SEG):
         if nombre not in ESCENARIOS:
             raise ValueError(f"Escenario desconocido: {nombre}")
+        segundos = max(segundos, DURACION_FALLA_SEG)
         if nombre == "sin_comunicacion":
             self.provocar_corte(segundos)
             return
@@ -131,7 +134,7 @@ class DispositivoSimulado:
         self.log(f"[{self.id_dispositivo}] FALLA SIMULADA: {ESCENARIOS[nombre]['etiqueta']}")
 
     """Falla al azar (compatibilidad con el botón «Provocar anomalía»)."""
-    def provocar_anomalia(self, segundos=180):
+    def provocar_anomalia(self, segundos=DURACION_FALLA_SEG):
         posibles = [k for k, v in ESCENARIOS.items() if k != "sin_comunicacion"
                     and any(x["tipo_variable"] in v["cambios"] for x in self.sensores)]
         self.provocar_escenario(random.choice(posibles or ["falla_bomba"]), segundos)
@@ -167,7 +170,7 @@ class DispositivoSimulado:
         self.t += 1
         if (self.opciones.get("anomalias") and not self.escenario and not self.red_caida
                 and random.random() < self.opciones.get("prob_falla", 0.0015)):   # de vez en cuando aparece una falla sola (~1 por hora y equipo)
-            self.provocar_anomalia(150)
+            self.provocar_anomalia()
         for s in self.sensores:
             self.cola.append({"id_sensor": s["id_sensor"], "tipo_variable": s["tipo_variable"],
                               "valor": self.valor(s), "unidad": s["unidad"],

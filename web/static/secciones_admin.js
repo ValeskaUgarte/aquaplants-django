@@ -220,7 +220,8 @@ async function secReglas(z) {
 
 /*  Parámetros del sistema  */
 async function secParametros(z) {
-  const m = marco(z), datos = await api.get('/parametros'), recargar = () => secParametros(z);
+  const m = marco(z), [datos, resp] = await Promise.all([api.get('/parametros'), api.get('/respaldos')]), recargar = () => secParametros(z);
+  m.cuerpo.append(bloqueRespaldo(resp, accion(m, () => api.post('/respaldos', {}), 'Respaldo iniciado: tarda unos segundos.', () => setTimeout(recargar, 4000))));
   datos.forEach((p) => {
     const texto = p.clave === 'google_maps_api_key', entrada = el('input', texto ? { type: 'text', value: p.valor, maxlength: 120, autocomplete: 'off', placeholder: 'AIza… (vacío = mapa simple)' } : { type: 'number', min: 0, value: p.valor, required: true });
     const f = el('form', { class: 'panel-form' }, el('label', { class: 'campo' }, el('span', {}, p.clave.replaceAll('_', ' ')), entrada, el('small', { class: 'ayuda' }, p.descripcion)), el('button', { class: 'boton', type: 'submit' }, 'Guardar'));

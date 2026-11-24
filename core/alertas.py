@@ -12,7 +12,7 @@ import threading
 
 from core import notificaciones
 from core.rtdb import rtdb
-from core.util import ahora_ms, clave_ms
+from core.util import ahora_ms, clave_ms, hora_local
 
 _lock = threading.RLock()
 _abiertas = None
@@ -80,7 +80,7 @@ def normalizar(clave, mapa, detalle=""):
         ab.pop(clave, None)
         ahora = ahora_ms()
         mapa[f"alertas_abiertas/{clave}"] = None
-        mapa.update({f"alertas/{aid}/estado": "resuelta", f"alertas/{aid}/resuelta_en": ahora,
+        mapa.update({f"alertas/{aid}/estado": "resuelta", f"alertas/{aid}/resuelta_en": ahora, f"alertas/{aid}/resuelta_hora": hora_local(ahora),
                      f"alertas/{aid}/normalizada_en": ahora, f"alertas/{aid}/resuelta_auto": True})
         mapa[f"alertas/{aid}/bitacora/{clave_ms(ahora)}_{secrets.token_hex(2)}"] = {
             "por": "sistema", "rol": "sistema", "accion": "se resolvió automáticamente",

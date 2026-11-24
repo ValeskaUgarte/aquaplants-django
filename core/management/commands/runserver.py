@@ -23,10 +23,38 @@ def _ip_local():
         s.close()
 
 
+PUERTO_CANDADO = 47613
+_candado = None
+
+
+def _unico_servidor() -> bool:
+    """En Windows dos `runserver` pueden escuchar el mismo puerto sin error. Si eso pasa hay DOS simulaciones enviando datos de los
+    mismos dispositivos (una con la falla provocada y otra sin ella) y las alertas se abren y se cierran solas cada pocos segundos.
+    Un puerto tomado en modo exclusivo sirve de candado: solo un servidor AquaPlants por computador. Se libera al cerrar el proceso."""
+    global _candado
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    try:
+        s.bind(("127.0.0.1", PUERTO_CANDADO))
+        s.listen(1)
+    except OSError:
+        s.close()
+        return False
+    _candado = s
+    return True
+
+
 class Command(RunserverCommand):
     default_addr = "0.0.0.0"        # escucha en toda la red: así el celular puede conectarse al computador
 
     def inner_run(self, *args, **options):
+        if not _unico_servidor():
+            self.stderr.write("\nYa hay otro servidor AquaPlants corriendo en este computador (otra terminal o ventana).\n"
+                              "Ciérralo con Ctrl+C antes de iniciar uno nuevo: dos servidores a la vez duplican la simulación\n"
+                              "y las alertas se abren y se cierran solas.\n")
+            self.stderr.flush()
+            os._exit(1)                                      # corre en un hilo del autoreload: sys.exit no cerraría el proceso
         from core.rtdb import rtdb
         aviso_nube = ""
         if os.environ.get("AQ_SIMULACION", "1") != "0" and not settings.AQ["PRODUCCION"]:

@@ -194,7 +194,8 @@ class CatalogoTests(Base):
         self.assertEqual(self.post(c, csrf, "/api/reglas-alerta", {"nombre": "Ninguno", "operador": ">", "umbral": 1}).status_code, 400)
         self.assertEqual(self.post(c, csrf, "/api/reglas-alerta", {"nombre": "EC tope", "sensor_id": sid, "operador": ">=", "umbral": 3}).status_code, 201)
         p = c.get("/api/parametros").json()
-        self.assertEqual({x["clave"] for x in p}, {"minutos_sin_comunicacion", "retencion_historicos_dias", "google_maps_api_key"})
+        self.assertEqual({x["clave"] for x in p}, {"minutos_sin_comunicacion", "retencion_historicos_dias", "google_maps_api_key",
+                                                  "respaldo_cada_horas", "respaldos_conservar", "limite_base_mb", "aviso_espacio_pct"})
         r = c.put("/api/parametros/minutos_sin_comunicacion", json.dumps({"valor": "10"}), content_type="application/json", HTTP_X_CSRF_TOKEN=csrf)
         self.assertEqual(r.status_code, 204)
         self.assertEqual(repo.parametro_int("minutos_sin_comunicacion", 5), 10)

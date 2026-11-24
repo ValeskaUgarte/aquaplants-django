@@ -267,3 +267,11 @@ h4.con-ico,h5.con-ico { display:flex; align-items:center; gap:.5rem; } .ico-h { 
 .seg-modo button.activo { background:#0b6e4f; border-color:#0b6e4f; color:#fff; }
 .pie-acciones { display:flex; justify-content:flex-end; margin-top:1rem; }
 @media (max-width:420px) { .seg-cifra strong { font-size:.95rem; } }
+
+/* Respaldo y espacio de la base (Administración → Parámetros) */
+.bloque-respaldo { display:grid; gap:.45rem; padding:.9rem 1rem; margin-bottom:1rem; border:1px solid #cfdcd4; border-radius:12px; background:#f6faf7; }
+.bloque-respaldo .boton { justify-self:start; }
+.espacio-barra { height:10px; border-radius:6px; background:#e2e9e5; overflow:hidden; }
+.espacio-barra i { display:block; height:100%; background:#1b8a4b; }
+.espacio-barra.alto i { background:#c62828; }
+.espacio-aviso { color:#b3261e; font-weight:600; }

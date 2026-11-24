@@ -31,6 +31,12 @@ def iso(ms):
     return ms_a_iso(ms) if ms else None
 
 
+def hora_local(ms) -> str:
+    """ms -> «2026-11-24 07:05:32» en hora de Chile: legible al mirar la base directamente en la consola de Firebase."""
+    from zoneinfo import ZoneInfo
+    return datetime.fromtimestamp(ms / 1000, ZoneInfo("America/Santiago")).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def distancia_m(lat1, lng1, lat2, lng2):
     """Distancia en metros entre dos coordenadas (fórmula de haversine)."""
     import math

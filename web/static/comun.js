@@ -186,7 +186,7 @@ function pasosDeAlerta(a) {
           : rechazada ? 'Se rechazó la solución: hay que volver a revisar.' : `${a.reconocida_por || 'Alguien'} está revisando.` });
   } else if (a.resuelta_en) {
     const min = Math.max(0, Math.round((Date.parse(a.resuelta_en) - Date.parse(a.creada_en)) / 60000));
-    pasos.push({ clase: 'fin', icono: '■', titulo: 'Cerrada', texto: `Duró ${min < 1 ? 'menos de 1 min' : min < 60 ? min + ' min' : `${Math.floor(min / 60)} h ${min % 60} min`}.` });
+    pasos.push({ clase: 'fin', icono: '■', titulo: 'Cerrada', cuando: a.resuelta_en, texto: `${a.resuelta_auto ? 'Se resolvió sola (el valor volvió a la normalidad). ' : ''}Duró ${min < 1 ? 'menos de 1 min' : min < 60 ? min + ' min' : `${Math.floor(min / 60)} h ${min % 60} min`}.` });
   }
   return pasos;
 }
@@ -708,6 +708,19 @@ const iconoProblema = (a, clase = '') => ICO(nombreIconoProblema(a), `ico-prob $
 const ICONO_ESTADO_FALLA = { activa: 'nadie-reviso', reconocida: 'en-revision', revisada: 'falta-confirmar', resuelta: 'resueltas' };
 const iconoEstadoFalla = (e) => ICO(ICONO_ESTADO_FALLA[e] || 'pendiente', 'ico-estado');
 const tituloAlerta = (a) => `${a.severidad === 'emergencia' && a.tipo !== 'sin_comunicacion' ? '🚨 EMERGENCIA · ' : ''}${a.problema || (a.tipo === 'sin_comunicacion' ? 'Dispositivo sin comunicación' : 'Valor fuera de rango')}`;
+
+/*  Respaldo y espacio de la base (Administración → Parámetros, web y app)  */
+function bloqueRespaldo(r, respaldar) {
+  const pct = r.porcentaje, alto = pct != null && pct >= r.aviso_pct, mb = (b) => `${fmt(b / 1e6, 1)} MB`;
+  return el('div', { class: 'tarjeta bloque-respaldo' },
+    el('strong', {}, 'Respaldo y espacio de la base'),
+    el('div', {}, pct == null ? 'Espacio usado: se mide al hacer el primer respaldo.' : `Espacio usado: ${mb(r.tamano_bytes)} de ${fmt(r.limite_mb, 0)} MB (${fmt(pct, 1)} %)`),
+    pct == null ? null : el('div', { class: `espacio-barra${alto ? ' alto' : ''}` }, el('i', { style: { width: `${Math.min(100, pct)}%` } })),
+    alto ? el('div', { class: 'espacio-aviso' }, 'Queda poco espacio: exporta las mediciones antiguas y fija «retencion historicos dias».') : null,
+    el('div', { class: 'nota' }, r.ultimo_respaldo_en ? `Último respaldo: ${fechaHora(r.ultimo_respaldo_en)}` : 'Aún no hay respaldos.',
+      r.cada_horas > 0 ? ` · automático cada ${r.cada_horas} h` : ' · respaldo automático desactivado'),
+    el('button', { class: 'boton', type: 'button', disabled: !!r.en_curso, onclick: respaldar }, r.en_curso ? 'Respaldando…' : 'Respaldar ahora'));
+}
 
 /*  Equipo (celular o navegador) y puente con la app Android  */
 function infoAndroid() {

@@ -477,8 +477,23 @@ def regla_detalle(request, pk):
     return sin_contenido()
 
 
+# ============================================================ RESPALDOS Y ESPACIO DE LA BASE
+@ruta(("GET", "POST"), roles=ADMIN)
+def respaldos(request):
+    from core import respaldo
+    if request.method == "POST":
+        if not respaldo.en_segundo_plano("manual (" + request.usuario.get("nombre", "administrador") + ")"):
+            raise conflicto("Ya hay un respaldo en curso.")
+        _audit(request, "respaldo_solicitado", "base")
+        return JsonResponse({"iniciado": True}, status=202)
+    e = respaldo.estado()
+    return JsonResponse({k: e.get(k) for k in ("tamano_bytes", "medido_en", "limite_mb", "porcentaje", "aviso_pct", "cada_horas", "en_curso",
+                                                "ultimo_respaldo_en", "ultimo_respaldo_archivo", "respaldos")})
+
+
 # ============================================================ PARÁMETROS DEL SISTEMA
-CLAVES_PARAMETRO = ("minutos_sin_comunicacion", "retencion_historicos_dias", "google_maps_api_key")
+CLAVES_PARAMETRO = ("minutos_sin_comunicacion", "retencion_historicos_dias", "google_maps_api_key", "respaldo_cada_horas",
+                    "respaldos_conservar", "limite_base_mb", "aviso_espacio_pct")
 
 
 @ruta(("GET",), roles=ADMIN)
@@ -498,8 +513,10 @@ def parametro_detalle(request, clave):
         _audit(request, "parametro_modificado", "parametro", clave, {"valor": "(clave de mapa actualizada)"})
         return sin_contenido()
     d = validar(request.cuerpo, {"valor": Campo(texto(1, 5, r"\d{1,5}", "Debe ser un entero positivo."))})
-    if clave == "minutos_sin_comunicacion" and int(d["valor"]) < 1:
+    if clave in ("minutos_sin_comunicacion", "respaldos_conservar", "limite_base_mb") and int(d["valor"]) < 1:
         raise invalido("Debe ser al menos 1.")
+    if clave == "aviso_espacio_pct" and not 1 <= int(d["valor"]) <= 100:
+        raise invalido("Debe estar entre 1 y 100.")
     repo.guardar("parametros", clave, {"valor": d["valor"]})
     _audit(request, "parametro_modificado", "parametro", clave, {"valor": d["valor"]})
     return sin_contenido()

@@ -2,6 +2,7 @@
 from core.management.commands.seed_demo import completar_sensores
 from core.rtdb import rtdb
 from core.tests.base import Base
+from core.util import hora_local
 
 
 class FlujoSupervisorTests(Base):
@@ -28,6 +29,7 @@ class FlujoSupervisorTests(Base):
         self.assertEqual(r.status_code, 204, r.content)
         a = adm.get("/api/alertas").json()[0]
         self.assertEqual(a["estado"], "resuelta")
+        self.assertRegex(rtdb().get(f"alertas/{aid}/resuelta_hora"), r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         self.assertEqual([b["accion"] for b in a["bitacora"]], ["reconoció", "resolvió"])
         self.assertEqual({b["rol"] for b in a["bitacora"]}, {"supervisor"})
         panel = self.estado_panel(adm)
@@ -67,6 +69,8 @@ class FlujoSupervisorTests(Base):
         self.enviar([self.med("CAU1", "caudal", 2.0, "L/min")])                       # nadie fue a revisar y el valor se normaliza
         a = adm.get("/api/alertas").json()[0]
         self.assertEqual((a["estado"], a["resuelta_auto"]), ("resuelta", True))
+        guardada = rtdb().get(f"alertas/{aid}")                                       # en la base queda también la hora legible
+        self.assertEqual(guardada["resuelta_hora"], hora_local(guardada["resuelta_en"]))
         self.assertEqual([(b["por"], b["rol"], b["accion"]) for b in a["bitacora"]], [("Sistema", "sistema", "se resolvió automáticamente")])
         self.assertEqual(adm.get("/api/alertas", {"estado": "abiertas"}).json(), [])
         self.assertEqual(self.estado_panel(enc)["estado_alerta"], "ok")

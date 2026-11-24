@@ -20,6 +20,10 @@ PARAMETROS_INICIALES = {
     "google_maps_api_key": ("", "Clave de la API de Google Maps (Maps JavaScript API) para mostrar el mapa de los dispositivos. "
                                 "Créala en Google Cloud y restríngela a tu dominio; sin clave se usa un mapa incrustado simple."),
     "retencion_historicos_dias": ("0", "Días de conservación de mediciones; 0 = sin depuración (por validar con la contraparte)"),
+    "respaldo_cada_horas": ("24", "Cada cuántas horas se respalda automáticamente la base (0 = desactivado)"),
+    "respaldos_conservar": ("7", "Cantidad de respaldos recientes que se guardan (además, uno por semana de las últimas 4 semanas)"),
+    "limite_base_mb": ("1024", "Espacio máximo de la base en MB (plan gratuito Spark de Firebase: 1024)"),
+    "aviso_espacio_pct": ("80", "Porcentaje de uso del espacio a partir del cual se avisa a los administradores"),
 }
 
 

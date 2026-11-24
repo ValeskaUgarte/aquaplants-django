@@ -17,7 +17,7 @@ from core.http import (Campo, ErrorApi, booleano, conflicto, exigir_acceso_insta
 from core.ingesta import procesar_lote
 from core.vistas.mantencion import mantencion_publica
 from core.rtdb import rtdb
-from core.util import ahora_ms, clave_ms, iso, iso_a_ms
+from core.util import ahora_ms, clave_ms, hora_local, iso, iso_a_ms
 
 BUCKETS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 MAX_PUNTOS = 400
@@ -284,7 +284,7 @@ def revisar_alerta(request, pk):
     presente, detalle = causa_presente(a) if d["solucionado"] else (False, "")
     directa = d["solucionado"] and not presente and request.usuario["rol"] in ("supervisor", "administrador")
     if directa:                                              # supervisor o administrador: nadie más debe confirmarlo
-        cambios.update(estado="resuelta", resuelta_en=ahora, verificacion_por=request.usuario["id"], verificacion_en=ahora,
+        cambios.update(estado="resuelta", resuelta_en=ahora, resuelta_hora=hora_local(ahora), verificacion_por=request.usuario["id"], verificacion_en=ahora,
                        verificacion_aprobada=True,
                        verificacion_nota=f"Resuelta directamente por el {'administrador' if request.usuario['rol'] == 'administrador' else 'supervisor'}.")
     elif d["solucionado"]:
@@ -366,7 +366,7 @@ def verificar_alerta(request, pk):
                             "y confirma de nuevo, o rechaza la solución para que se revise otra vez.")
         if not a.get("normalizada_en"):
             cambios["normalizada_en"] = ahora
-        cambios.update(estado="resuelta", resuelta_en=ahora)
+        cambios.update(estado="resuelta", resuelta_en=ahora, resuelta_hora=hora_local(ahora))
     else:
         cambios["estado"] = "reconocida"                     # vuelve a revisión
         cambios["espera_medicion_hasta"] = None

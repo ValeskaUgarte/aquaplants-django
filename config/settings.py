@@ -140,6 +140,8 @@ AQ = {
     "RTDB_LOCAL_ARCHIVO": os.environ.get("AQ_RTDB_LOCAL_ARCHIVO", str(DATA_DIR / "rtdb-local.json")),
     "RTDB_LOCAL_PUERTO": _env_int("AQ_RTDB_LOCAL_PUERTO", 9199),
     "DATA_DIR": DATA_DIR,
+    # Carpeta de respaldos de la base (core/respaldo.py). Conviene apuntarla a una carpeta sincronizada (OneDrive, Google Drive).
+    "RESPALDOS_DIR": os.environ.get("AQ_RESPALDOS_DIR", str(BASE_DIR / "respaldos")),
     "PRODUCCION": PRODUCCION,
     "DEMO": DEMO,
 }
